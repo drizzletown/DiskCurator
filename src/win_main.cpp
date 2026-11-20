@@ -309,7 +309,7 @@ struct App {
  ULONGLONG job_started=0,job_finished=0,last_progress_tick=0,speed_tick=0;
  dc::U64 speed_bytes=0,speed_files=0;double recent_speed=0,recent_file_rate=0;
  size_t speed_root=0;dc::ScanPhase speed_phase=dc::ScanPhase::Enumerating;
- bool progress_marquee=false;
+ bool progress_marquee=false,task_issue=false,scope_controls_open=false;
  HWND btn_apply=nullptr;
  HWND welcome_title=nullptr,welcome_detail=nullptr,choose_folder=nullptr,choose_disks=nullptr;
  HWND clear_filter=nullptr,duplicate_view=nullptr;
@@ -384,6 +384,28 @@ struct App {
          return true;
      }catch(const std::exception& e){alert(hwnd,L"无效的副本保留设置："+wutf8(e.what()),MB_ICONWARNING);return false;}
  }
+ bool showing_duplicate_files() const {
+     return full_overview()?scope_view==3:has_scan&&view==2;
+ }
+ bool showing_files() const {
+     return full_overview()?(scope_view==1||scope_view==3):has_scan&&(view==0||view==2);
+ }
+ bool can_verify_duplicate_files() const {
+     return has_scan&&view==2&&!results_stale&&!exact_ready&&inv.complete()&&!hash_duplicates.groups.empty();
+ }
+ void duplicate_shortcut(){
+     if(!has_scan&&!full_overview())return;
+     if(can_verify_duplicate_files()){
+         run_action(CMD_EXACT);
+         return;
+     }
+     const bool back=showing_duplicate_files();
+     if(full_overview()){
+         SendMessageW(lens_pick,CB_SETCURSEL,back?1:3,0);
+         SendMessageW(hwnd,WM_COMMAND,MAKEWPARAM(ID_LENS_PICK,CBN_SELCHANGE),(LPARAM)lens_pick);
+     }else change_view(back?0:2);
+     SetFocus(list);
+ }
  void sync_lens(){
      if(!lens_pick)return;
      const bool scope=full_overview();
@@ -395,6 +417,9 @@ struct App {
      }
      SendMessageW(lens_pick,CB_SETCURSEL,scope?scope_view:view,0);
      ShowWindow(lens_pick,(scope||has_scan)?SW_SHOW:SW_HIDE);
+     const wchar_t* action=L"重复文件";
+     if(showing_duplicate_files())action=can_verify_duplicate_files()?L"核验副本":L"返回文件";
+     SetWindowTextW(duplicate_view,action);
  }
  std::wstring cache_warning() const {
      size_t failed=has_scan&&!inv.index_error.empty()?1:0;
@@ -410,6 +435,7 @@ struct App {
  }
  void reset_progress(){
      if(!scan_bar)return;
+     job_finished=0;task_issue=false;
      SendMessageW(scan_bar,PBM_SETMARQUEE,FALSE,0);SendMessageW(scan_bar,PBM_SETPOS,0,0);progress_marquee=false;
      SetWindowTextW(progress_stage,L"等待扫描 · 请确认范围后开始");
      SetWindowTextW(progress_metrics,L"统计完成后显示容量、速度、已用时间和预计剩余时间。");
@@ -479,7 +505,7 @@ struct App {
      SetWindowTextW(root_box,summary.c_str());
      scope_view=0;
      if(!issues.empty())status_text(L"部分磁盘未就绪，未列入可选范围；本次只扫描已勾选的磁盘。");
-     refresh();refresh_navigation();
+     refresh();refresh_navigation();SetFocus(btn_scan);
  }
  void invalidate_pending(){
      if(has_pending&&!busy){
@@ -570,6 +596,7 @@ struct App {
          else if(view==0||view==2)selected_dir=first.parent_path();
      }else selected_dir.clear();
      std::wstring text=count?L"已选 "+std::to_wstring(count)+L" 项":L"选择结果后操作 · Ctrl / Shift 多选";
+     if(!count&&can_verify_duplicate_files())text=L"这些文件的大小和哈希相同。点“核验副本”可逐字节比较当前范围的候选文件。";
      if(count&&(view<=3||full_overview()))text+=L" · 所选行容量 "+bytes(total);
      if(results_stale)text=L"结果已过期 · 仅供参考，请重新扫描 · "+text;
      SetWindowTextW(selection_context,text.c_str());
@@ -580,26 +607,41 @@ struct App {
      const bool ready=has_scan||full_overview();
      const bool welcome=!busy&&!ready;
      const bool range_set=scan_scope==0?!selected_drives.empty():GetWindowTextLengthW(root_box)>0;
-     for(HWND h:{welcome_title,welcome_detail,choose_folder,choose_disks})ShowWindow(h,welcome?SW_SHOW:SW_HIDE);
+     if(range_set)scope_controls_open=true;
+     for(HWND h:{scope_pick,root_box,btn_browse})ShowWindow(h,scope_controls_open?SW_SHOW:SW_HIDE);
+     for(HWND h:{welcome_title,welcome_detail})ShowWindow(h,welcome?SW_SHOW:SW_HIDE);
+     for(HWND h:{choose_folder,choose_disks})ShowWindow(h,welcome&&!scope_controls_open?SW_SHOW:SW_HIDE);
      if(welcome){
-         SetWindowTextW(welcome_title,range_set?L"扫描范围已选好":L"选择要检查的位置");
-         SetWindowTextW(welcome_detail,range_set
-             ?L"点击上方“开始扫描”。完成后可查看文件大小、重复文件和文件夹。"
-             :L"可以先检查一个文件夹，也可以选择一个或多个磁盘。扫描只读取文件。");
+         SetWindowTextW(welcome_title,range_set?L"准备扫描":L"选择要检查的位置");
+         const wchar_t* detail=L"从一个文件夹开始，或选择多个磁盘一起检查。扫描只读取文件。";
+         if(range_set)detail=L"扫描只读取文件，完成后可以查看文件和重复副本。";
+         else if(scope_controls_open)detail=scan_scope==1?L"在上方输入文件夹路径，或点“浏览…”选择。":L"在上方选择要扫描的磁盘。";
+         SetWindowTextW(welcome_detail,detail);
      }
+     ShowWindow(btn_scan,scope_controls_open&&!busy?SW_SHOW:SW_HIDE);
+     ShowWindow(btn_stop,busy&&task_cancelable?SW_SHOW:SW_HIDE);
      EnableWindow(btn_scan,!busy&&range_set);
-     SetWindowTextW(btn_scan,ready?L"重新扫描":L"开始扫描");
-     for(HWND h:{search,clear_filter,duplicate_view,btn_basic,btn_theme,btn_smart,btn_preview,btn_history,list,selection_context})
+     SetWindowTextW(btn_scan,ready||job_finished?L"重新扫描":L"开始扫描");
+     for(HWND h:{search,clear_filter,duplicate_view,btn_basic,btn_theme,btn_smart,btn_history,list,selection_context})
          ShowWindow(h,ready?SW_SHOW:SW_HIDE);
      ShowWindow(status,welcome&&!job_finished?SW_HIDE:SW_SHOW);
-     for(HWND h:{progress_stage,scan_bar,progress_metrics,progress_path})ShowWindow(h,!welcome?SW_SHOW:SW_HIDE);
+     for(HWND h:{progress_stage,progress_metrics})ShowWindow(h,!welcome||job_finished?SW_SHOW:SW_HIDE);
+     ShowWindow(scan_bar,busy?SW_SHOW:SW_HIDE);
+     ShowWindow(progress_path,show_progress_detail()?SW_SHOW:SW_HIDE);
      EnableWindow(clear_filter,ready&&!busy&&GetWindowTextLengthW(search)>0);
      EnableWindow(duplicate_view,ready&&!busy);
      for(HWND h:{btn_basic,btn_history})EnableWindow(h,!busy&&ready);
      for(HWND h:{btn_theme,btn_smart,btn_preview})EnableWindow(h,!busy&&ready&&!results_stale);
-     EnableWindow(btn_apply,!busy&&has_pending);ShowWindow(btn_apply,has_pending?SW_SHOW:SW_HIDE);
+     const bool reviewing=has_scan&&view==9;
+     ShowWindow(btn_preview,ready&&!reviewing?SW_SHOW:SW_HIDE);
+     EnableWindow(btn_apply,!busy&&has_pending);ShowWindow(btn_apply,reviewing&&has_pending?SW_SHOW:SW_HIDE);
      ShowWindow(btn_all_results,has_full_scan&&has_scan&&(selected_drives.size()>1||!all_scan.errors.empty())?SW_SHOW:SW_HIDE);
-     refresh_selection();InvalidateRect(hwnd,nullptr,FALSE);
+     refresh_selection();
+     RECT client{};GetClientRect(hwnd,&client);layout(client.right,client.bottom,false);
+     InvalidateRect(hwnd,nullptr,FALSE);
+ }
+ bool show_progress_detail() const {
+     return busy||task_issue||results_stale||(has_scan&&view==9);
  }
  static std::wstring duration_text(double seconds){
      if(seconds<0)return L"估算中";
@@ -692,61 +734,88 @@ struct App {
      SetWindowTextW(progress_path,current.c_str());
  }
  void finish_progress(bool success,bool stopped=false){
+     task_issue=!success;
      SendMessageW(scan_bar,PBM_SETMARQUEE,FALSE,0);progress_marquee=false;
      SetWindowLongPtrW(scan_bar,GWL_STYLE,GetWindowLongPtrW(scan_bar,GWL_STYLE)&~PBS_MARQUEE);
      const bool scanning=active_task==Task::Scan||active_task==Task::ScanAll;
      size_t errors=0;
      if(scanning){if(has_scan)errors=inv.errors.size();else {errors=all_scan.errors.size();for(const auto& volume:all_scan.volumes)errors+=volume.errors.size();}}
-     SetWindowTextW(progress_stage,success?(scanning?(errors?L"扫描结束 · 存在读取异常，结果不完整":L"扫描完成 · 可从结果中选择对象并操作"):L"分析或操作完成"):
-         stopped?(scanning?L"已停止 · 未完成的扫描不会作为操作依据":L"已停止本次分析 · 原扫描结果保留"):L"本次任务未完成");
+     const wchar_t* stage=L"本次任务未完成";
+     if(success){
+         if(scanning)stage=errors?L"扫描结束 · 存在读取异常，结果不完整":L"扫描完成";
+         else stage=active_task==Task::Verify?L"副本核验完成":L"任务完成";
+     }else if(stopped)stage=scanning?L"已停止 · 可重新扫描":L"分析已停止 · 扫描结果已保留";
+     SetWindowTextW(progress_stage,stage);
      if(success)SendMessageW(scan_bar,PBM_SETPOS,1000,0);
      std::wstring summary=L"已用 "+duration_text(double((job_finished?job_finished:GetTickCount64())-job_started)/1000.0);
      if(success&&scanning){const auto total=has_scan?inv.bytes:all_scan.total_bytes;const auto files=has_scan?inv.files.size():all_scan.total_files;
          summary+=L" · "+std::to_wstring(files)+L" 个文件 · "+bytes(total)+(errors?L" · 未完成 SHA-256 项目见扫描异常":L" · SHA-256 全内容扫描");}
+     if(success&&active_task==Task::Verify)summary+=L" · "+std::to_wstring(dup.groups.size())+L" 组文件已逐字节核验为相同内容";
      if(errors)summary+=L" · 异常 "+std::to_wstring(errors)+L" 项";
      SetWindowTextW(progress_metrics,summary.c_str());
-     SetWindowTextW(progress_path,success?L"文件、目录和副本视角共用本次扫描结果；字节核验和主题分析按需进行。":L"请查看任务提示；重新扫描可再次尝试读取。");
+     SetWindowTextW(progress_path,success?L"":stopped?L"可以调整范围，然后重新尝试。":L"请查看任务提示后重试。");
+     refresh_navigation();
  }
- void layout(int W,int H){
+ void layout(int W,int H,bool resize_columns=true){
      const int margin=W<980?14:24;
      const int right=W-margin, width=W-2*margin, gap=8;
      const int scope_width=W<980?126:158;
-     const int controls_width=92+102+72+3*gap;
-     move(scope_pick,margin,66,scope_width,190);
-     move(root_box,margin+scope_width+gap,66,width-scope_width-gap-controls_width,32);
-     move(btn_browse,right-controls_width+gap,66,92,32);
-     move(btn_scan,right-102-72-gap,66,102,32);
-     move(btn_stop,right-72,66,72,32);
-     move(progress_stage,margin,115,width,24);move(scan_bar,margin,144,width,12);
-     move(progress_metrics,margin,164,width,22);move(progress_path,margin,188,width,22);
+     const bool ready=has_scan||full_overview();
+     const int scope_x=margin+(W<980?148:169);
+     const int root_x=scope_x+scope_width+gap;
+     const int action_width=busy?(task_cancelable?72:0):(ready?100:0);
+     const int browse_x=right-(action_width?action_width+gap:0)-84;
+     move(scope_pick,scope_x,13,scope_width,190);
+     move(root_box,root_x,13,browse_x-gap-root_x,32);
+     move(btn_browse,browse_x,13,84,32);
+     if(ready)move(btn_scan,right-100,13,100,32);
+     move(btn_stop,right-72,13,72,32);
+
+     int y=68;
+     if(!busy&&W>=980){
+         const int stage_width=std::min(400,width/3);
+         move(progress_stage,margin,y,stage_width,24);
+         move(progress_metrics,margin+stage_width+gap,y+1,width-stage_width-gap,23);
+         y+=28;
+     }else{
+         move(progress_stage,margin,y,width,24);y+=28;
+         if(busy){move(scan_bar,margin,y,width,10);y+=16;}
+         move(progress_metrics,margin,y,width,22);y+=24;
+     }
+     if(show_progress_detail()){move(progress_path,margin,y,width,22);y+=24;}
+     y+=4;
      const int lens_width=W<980?154:182;
      const int duplicate_width=100, clear_width=84;
      const int filter_x=margin+lens_width+duplicate_width+2*gap;
-     move(lens_pick,margin,228,lens_width,360);
-     move(duplicate_view,margin+lens_width+gap,228,duplicate_width,32);
-     move(search,filter_x,228,right-clear_width-gap-filter_x,32);
-     move(clear_filter,right-clear_width,228,clear_width,32);
+     move(lens_pick,margin,y,lens_width,360);
+     move(duplicate_view,margin+lens_width+gap,y,duplicate_width,32);
+     move(search,filter_x,y,right-clear_width-gap-filter_x,32);
+     move(clear_filter,right-clear_width,y,clear_width,32);
+     y+=40;
      const int menu_width=W<980?86:110;
-     move(btn_basic,margin,272,menu_width,32);
-     move(btn_theme,margin+menu_width+gap,272,menu_width,32);
-     move(btn_smart,margin+2*(menu_width+gap),272,menu_width,32);
-     move(btn_all_results,margin+3*(menu_width+gap),272,104,32);
-     move(btn_history,right-86,272,86,32);
-     move(btn_preview,right-2*86-gap,272,86,32);
-     move(btn_apply,right-2*86-2*gap-100,272,100,32);
-     move(selection_context,margin,312,width,23);
-     move(list,margin,340,width,std::max(80,H-381));
-     const int available=width-GetSystemMetrics(SM_CXVSCROLL)-6;
-     ListView_SetColumnWidth(list,0,available*21/100);
-     ListView_SetColumnWidth(list,1,available*33/100);
-     ListView_SetColumnWidth(list,2,available*13/100);
-     ListView_SetColumnWidth(list,3,available-available*21/100-available*33/100-available*13/100);
+     move(btn_basic,margin,y,menu_width,32);
+     move(btn_theme,margin+menu_width+gap,y,menu_width,32);
+     move(btn_smart,margin+2*(menu_width+gap),y,menu_width,32);
+     move(btn_all_results,margin+3*(menu_width+gap),y,104,32);
+     move(btn_history,right-86,y,86,32);
+     move(btn_preview,right-2*86-gap,y,86,32);
+     move(btn_apply,right-86-gap-100,y,100,32);y+=39;
+     move(selection_context,margin,y,width,23);y+=26;
+     move(list,margin,y,width,std::max(80,H-y-41));
+     if(resize_columns){
+         const int available=width-GetSystemMetrics(SM_CXVSCROLL)-6;
+         ListView_SetColumnWidth(list,0,available*21/100);
+         ListView_SetColumnWidth(list,1,available*33/100);
+         ListView_SetColumnWidth(list,2,available*13/100);
+         ListView_SetColumnWidth(list,3,available-available*21/100-available*33/100-available*13/100);
+     }
      move(status,margin,H-32,width,23);
      const int welcome_y=std::max(140,(H-132)/2);
      move(welcome_title,margin,welcome_y,width,40);
      move(welcome_detail,margin,welcome_y+45,width,28);
      move(choose_folder,W/2-150,welcome_y+88,144,38);
      move(choose_disks,W/2+6,welcome_y+88,144,38);
+     if(!ready&&!busy)move(btn_scan,W/2-72,welcome_y+88,144,38);
  }
  static void solid(HDC dc,RECT r,COLORREF c){HBRUSH b=CreateSolidBrush(c);FillRect(dc,&r,b);DeleteObject(b);}
  static void label_at(HDC dc,HFONT face,const std::wstring& text,int x,int y,int width,int height,COLORREF color,UINT flags=DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS){
@@ -756,26 +825,28 @@ struct App {
  void paint(HDC dc){
      RECT rc{};GetClientRect(hwnd,&rc);const int W=rc.right,H=rc.bottom;
      const int margin=W<980?14:24;
-     solid(dc,rc,kPage);solid(dc,RECT{0,0,W,108},kNavy);
+     solid(dc,rc,kPage);solid(dc,RECT{0,0,W,58},kNavy);
      label_at(dc,display_font,L"DiskCurator",margin,12,190,38,RGB(248,250,252));
-     label_at(dc,font,L"磁盘文件整理",margin+182,16,190,31,RGB(196,215,231));
-     if(busy||has_scan||full_overview())
-         solid(dc,RECT{margin,217,W-margin,218},RGB(205,216,227));
+     if(!scope_controls_open)label_at(dc,font,L"磁盘文件整理",margin+164,16,190,31,RGB(196,215,231));
      if(has_scan||full_overview())solid(dc,RECT{margin,H-39,W-margin,H-38},RGB(205,216,227));
  }
- void change_view(int n){
+ void change_view(int n,bool reset_view=false){
      if(n<0||n>=int(std::size(tab_names)))return;
-     if(n!=view){restoring_selection=true;ListView_SetItemState(list,-1,0,LVIS_SELECTED|LVIS_FOCUSED);restoring_selection=false;
-         sort_column=n==7?0:2;sort_desc=n!=5;SetWindowTextW(search,L"");}
+     if(n!=view||reset_view){
+         restoring_selection=true;ListView_SetItemState(list,-1,0,LVIS_SELECTED|LVIS_FOCUSED);restoring_selection=false;
+         sort_column=n==7?0:2;sort_desc=n!=5;
+         if(GetWindowTextLengthW(search))SetWindowTextW(search,L"");
+         if(filter_pending){KillTimer(hwnd,2);filter_pending=false;}
+     }
      view=n;refresh();refresh_navigation();
+     if(!busy&&!task_issue&&has_scan&&(pending_is_structure||pending_is_merge||!pending.name.empty()))show_plan_status();
+     if(reset_view&&!visible.empty())ListView_EnsureVisible(list,0,FALSE);
  }
  void open_scope_selected(){
      int index=ListView_GetNextItem(list,-1,LVNI_SELECTED);if(index<0||size_t(index)>=visible.size())return;
      const Row& row=rows[visible[size_t(index)]];const int v=row.suggestion-3000;
      if(v<0||size_t(v)>=all_scan.volumes.size())return;
-     fs::path p=all_scan.volumes[size_t(v)].root/row.launch;std::error_code ec;
-     if(fs::is_regular_file(p,ec))p=p.parent_path();
-     if(fs::is_directory(p,ec))ShellExecuteW(hwnd,L"explore",p.c_str(),nullptr,nullptr,SW_SHOWNORMAL);
+     reveal_in_explorer(all_scan.volumes[size_t(v)].root/row.launch);
  }
  std::wstring row_key(const Row& row)const{
      return row.a+L"\n"+row.b+L"\n"+row.launch.generic_wstring()+L"\n"+std::to_wstring(row.suggestion);
@@ -919,7 +990,6 @@ struct App {
                  rows.push_back({(exact_ready?L"精确副本组 ":L"哈希候选组 ")+std::to_wstring(k),fmt(f.rel),bytes(f.bytes),detail+L" · "+
                      (exact_ready?L"已逐字节核验":L"SHA-256 相同；操作时按您配置的策略验证"),f.bytes,f.rel});}}
          if(matched>result_cap)rows.push_back({L"显示范围已截取",std::to_wstring(result_cap)+L" / "+std::to_wstring(matched)+L" 项",L"",L"输入路径、哈希或副本数查找全部候选"});
-         if(rows.empty())rows.push_back({L"未发现匹配的副本记录",L"请清除筛选条件或切换文件视角",L"",L""});
      }
      else if(view==3){size_t matched=0;
          if(exact_ready){size_t group_index=0;for(const auto& group:dupdirs){++group_index;for(const auto& path:group.paths)if(matches(path)){
@@ -1050,19 +1120,33 @@ struct App {
      if(view==12&&!inv.index_error.empty())rows.push_back({L"索引未持久化",fmt(inv.root),L"内存结果可用",wutf8(inv.index_error)});
      rebuild();
  }
+ std::wstring empty_results_message() const {
+     if(GetWindowTextLengthW(search))return L"没有匹配的结果。请换一个关键词，或清除筛选。";
+     if(showing_duplicate_files())
+         return has_scan&&exact_ready?L"当前范围内未发现内容相同的文件。":L"在本次已读取的文件中未发现重复候选。";
+     if((has_scan&&view==0)||(full_overview()&&scope_view==1))return L"当前范围内没有可显示的文件。";
+     return L"当前视图没有可显示的结果。";
+ }
  void rebuild(){
      const auto keys=rebuilding_rows?saved_selection_keys:selection_keys();rebuilding_rows=false;
      restoring_selection=true;ListView_SetItemState(list,-1,0,LVIS_SELECTED|LVIS_FOCUSED);
      visible.clear();auto filter=low(get_text(search));for(size_t i=0;i<rows.size();++i){auto&r=rows[i];if(source_filtered||r.a==L"显示范围已截取"||filter.empty()||low(r.a).find(filter)!=std::wstring::npos||low(r.b).find(filter)!=std::wstring::npos||low(r.c).find(filter)!=std::wstring::npos||low(r.d).find(filter)!=std::wstring::npos)visible.push_back(i);}
-     auto col=sort_column;bool desc=sort_desc;std::stable_sort(visible.begin(),visible.end(),[&](size_t a,size_t b){auto&x=rows[a],&y=rows[b];
+     // Keep a matching plan summary above the details, even after a column click.
+     auto sortable=visible.begin();
+     if(has_scan&&view==9&&sortable!=visible.end()&&*sortable==0)++sortable;
+     auto col=sort_column;bool desc=sort_desc;std::stable_sort(sortable,visible.end(),[&](size_t a,size_t b){auto&x=rows[a],&y=rows[b];
          if(col==2&&x.count!=y.count)return desc?x.count>y.count:x.count<y.count;
          const auto&xs=col==0?x.a:col==1?x.b:col==2?x.c:x.d;const auto&ys=col==0?y.a:col==1?y.b:col==2?y.c:y.d;
          auto k=low(xs).compare(low(ys));return desc?k>0:k<0;});
      ListView_SetItemCountEx(list,int(visible.size()),LVSICF_NOSCROLL);
-     std::wstring note=L"显示 "+std::to_wstring(visible.size())+L" 行 / "+std::to_wstring(rows.size())+L" 行";
-     if(visible.empty()&&!filter.empty())note=L"没有匹配“"+get_text(search)+L"”的结果。可更换关键词或清除筛选。";
+     std::wstring note=visible.empty()?empty_results_message():
+         (filter.empty()?L"显示 ":L"筛选结果 ")+std::to_wstring(visible.size())+L" 行";
      if(full_overview())note+=L" · 所选磁盘已索引 "+std::to_wstring(all_scan.total_files)+L" 文件 · "+std::to_wstring(all_scan.hash_candidates.size())+L" 组哈希候选";
-     if(has_scan){note+=L" · 当前根 "+fmt(root)+L" · "+std::to_wstring(inv.files.size())+L" 个文件，"+bytes(inv.bytes)+L" · "+std::to_wstring(exact_ready?dup.groups.size():hash_duplicates.groups.size())+(exact_ready?L" 组精确副本":L" 组哈希副本候选");if(!inv.complete()||!dup.errors.empty())note+=L" · 扫描/校验不完整";}
+     if(has_scan){
+         if(!inv.complete()||!dup.errors.empty())note=L"扫描或核验不完整 · "+note;
+         note+=L" · "+std::to_wstring(inv.files.size())+L" 个文件，"+bytes(inv.bytes)+L" · "+std::to_wstring(exact_ready?dup.groups.size():hash_duplicates.groups.size())+
+             (exact_ready?L" 组精确副本":L" 组重复候选")+L" · 当前范围 "+root.wstring();
+     }
      for(int i=0;i<int(visible.size());++i)if(keys.count(row_key(rows[visible[size_t(i)]])))ListView_SetItemState(list,i,LVIS_SELECTED,LVIS_SELECTED);
      restoring_selection=false;if(results_stale)note=L"结果已过期 · 未自动重扫 · "+note;
      if(!busy)status_text(note);
@@ -1232,15 +1316,16 @@ struct App {
          }
          return;
      }
-     finish_progress(true);refresh_navigation();
-     if(view==9&&(pending_is_structure||pending_is_merge||!pending.name.empty())){
-         const auto summary=describe_preview();
-         const auto stage=summary.title+(has_pending?L" · 请核对预览":L" · 无需执行");
-         SetWindowTextW(progress_stage,stage.c_str());
-         SetWindowTextW(progress_metrics,summary.changes.c_str());
-         SetWindowTextW(progress_path,has_pending?L"核对列表中的来源和目标后，可选择“确认执行…”。":
-             L"本次预览没有要修改的项目，可在列表中查看说明。");
-     }
+     finish_progress(true);
+     if(view==9&&(pending_is_structure||pending_is_merge||!pending.name.empty()))show_plan_status();
+ }
+ void show_plan_status(){
+     const auto summary=describe_preview();
+     const auto stage=summary.title+(!has_pending?L" · 无需执行":view==9?L" · 请核对预览":L" · 预览已就绪");
+     SetWindowTextW(progress_stage,stage.c_str());
+     SetWindowTextW(progress_metrics,summary.changes.c_str());
+     SetWindowTextW(progress_path,view!=9?L"":has_pending?L"核对来源、目标和数量后，可选择“确认执行…”。":
+         L"本次没有要修改的项目。");
  }
  void browse(){if(scan_scope==0){choose_drives();return;}
      IFileOpenDialog* raw=nullptr;
@@ -1262,7 +1347,7 @@ struct App {
      PWSTR path=nullptr;
      if(SUCCEEDED(hr))hr=selected->GetDisplayName(SIGDN_FILESYSPATH,&path);
      if(SUCCEEDED(hr)){SetWindowTextW(root_box,path);SetFocus(btn_scan);}
-     else {alert(hwnd,L"无法打开此文件夹。可在上方输入或粘贴完整路径。",MB_ICONWARNING);SetFocus(root_box);}
+     else {scope_controls_open=true;refresh_navigation();alert(hwnd,L"无法打开此文件夹。可在上方输入或粘贴完整路径。",MB_ICONWARNING);SetFocus(root_box);}
      CoTaskMemFree(path);
  }
  bool need_scan(){
@@ -1394,17 +1479,17 @@ struct App {
      if(plan.name.rfind("Quarantine verified duplicate files from ",0)!=0)retirement_summary={};
      pending_is_merge=false;pending_is_structure=false;pending_merge={};pending_structure={};
      pending=std::move(plan);has_pending=!pending.moves.empty();
-     change_view(9);
+     change_view(9,true);
  }
  void preview_merge(dc::MergePlan proposal){
      pending_merge=std::move(proposal);pending={};pending_structure={};pending_is_merge=true;pending_is_structure=false;
      has_pending=!pending_merge.copies.empty()||!pending_merge.directories.empty();
-     change_view(9);
+     change_view(9,true);
  }
  void preview_structure(dc::StructurePlan proposal){
      pending_structure=std::move(proposal);pending={};pending_merge={};pending_is_merge=false;pending_is_structure=true;
      has_pending=!pending_structure.copies.empty()||!pending_structure.directories.empty();
-     change_view(9);
+     change_view(9,true);
  }
  void do_structure(){if(!need_scan())return;if(!structure_ready||structure_rejected){start(Task::Structure);return;}change_view(11);
      if(!structure_rejected)status_text(L"目录结构建议：选中一条原目录→目标目录的映射后双击编辑；确认无误，再选择智能操作 → 预览目录重组方案。");
@@ -1634,15 +1719,28 @@ struct App {
      start(Task::CleanPlan);}
  void do_apply(){
      if(!has_pending||busy||!need_scan())return;
+     if(view!=9)change_view(9,true);
      const auto summary=describe_preview();
      std::wstring question=summary.title+L"\n操作根目录  "+root.wstring()+L"\n";
      if(summary.location!=root.wstring())question+=summary.location+L"\n";
      question+=L"\n"+summary.changes+L"\n"+summary.effect;
-     if(!pending_is_merge&&!pending_is_structure&&pending.moves.size()==1){
+     if(pending_is_merge||pending_is_structure){
+         const auto& copies=pending_is_merge?pending_merge.copies:pending_structure.copies;
+         const auto& directories=pending_is_merge?pending_merge.directories:pending_structure.directories;
+         if(!copies.empty()){
+             const auto& copy=copies.front();
+             question+=L"\n\n复制示例\n"+copy.from.wstring()+L" → "+copy.to.wstring();
+         }else if(!directories.empty()){
+             question+=L"\n\n新建文件夹示例\n"+directories.front().wstring();
+         }
+     }else if(!pending.moves.empty()){
          const auto& move=pending.moves.front();
-         question+=L"\n\n"+move.from.wstring()+L" → "+move.to.wstring();
+         question+=pending.moves.size()==1?L"\n\n路径变更\n":L"\n\n路径变更示例\n";
+         question+=move.from.wstring()+L" → "+move.to.wstring();
      }
-     question+=L"\n\n现在执行这份预览吗？选择“否”可返回核对。";
+     if(GetWindowTextLengthW(search)||ListView_GetSelectedCount(list))
+         question+=L"\n\n筛选和选中行只用于查看。确认后将执行上述全部变更。";
+     question+=L"\n\n现在执行整份计划吗？选择“否”可返回预览。";
      if(MessageBoxW(hwnd,question.c_str(),L"确认执行操作计划",MB_ICONQUESTION|MB_YESNO|MB_DEFBUTTON2)!=IDYES)return;
      if(preview_is_quarantine()&&(pending.retention.min_active_copies==0||!pending.retention.verify_bytes_before_change)){
          std::wstring risk;
@@ -1727,7 +1825,7 @@ struct App {
  HMENU action_menu(int category){
      HMENU menu=CreatePopupMenu();if(!menu)return nullptr;
      const bool ready=has_scan||full_overview();
-     const bool files=full_overview()?(scope_view==1||scope_view==3):(view==0||view==2);
+     const bool files=showing_files();
      const bool dirs=full_overview()?scope_view==2:(view==1||view==3||view==4||view==8);
      const bool selected=ListView_GetSelectedCount(list)>0;
      auto item=[&](int id,const wchar_t* text,bool enabled=true){
@@ -1738,7 +1836,7 @@ struct App {
      if(category==0){
          item(CMD_OPEN,L"在资源管理器查看所选位置",selected&&(full_overview()||!selected_paths().empty()));
          item(CMD_ISOLATE_SELECTED,L"隔离所选文件…（先预览）",files&&selected);
-         item(ID_RENAME,files?L"重命名所选文件…":L"批量重命名目录内的项目…",
+         item(ID_RENAME,files?L"重命名所选文件…\tF2":L"批量重命名目录内的项目…",
               (files||(full_overview()?scope_view==2:view==1||view==3))&&ListView_GetSelectedCount(list)==1);
          item(CMD_PAIR,L"评估两个目录…",dirs);
          sep();item(CMD_SELECT_ALL,L"选择当前显示的全部行");item(CMD_SELECT_NONE,L"清除选择");
@@ -1781,14 +1879,25 @@ struct App {
      const int command=TrackPopupMenu(menu,TPM_RETURNCMD|TPM_RIGHTBUTTON,at.x,at.y,0,hwnd,nullptr);
      DestroyMenu(menu);if(command)run_action(command);
  }
+ void reveal_in_explorer(const fs::path& path){
+     std::error_code error;
+     const auto info=fs::status(path,error);
+     if(fs::is_directory(info)){
+         if(reinterpret_cast<INT_PTR>(ShellExecuteW(hwnd,L"explore",path.c_str(),nullptr,nullptr,SW_SHOWNORMAL))>32)return;
+     }else if(fs::is_regular_file(info)){
+         PIDLIST_ABSOLUTE item=nullptr;
+         if(SUCCEEDED(SHParseDisplayName(path.c_str(),nullptr,&item,0,nullptr))){
+             const HRESULT opened=SHOpenFolderAndSelectItems(item,0,nullptr,0);
+             CoTaskMemFree(item);
+             if(SUCCEEDED(opened))return;
+         }
+     }
+     status_text(L"无法在资源管理器中定位所选项目，请检查路径或重新扫描。");
+ }
  void open_selected_location(){
      if(full_overview()){open_scope_selected();return;}
      const auto paths=selected_paths();
-     if(paths.empty())return;
-     auto path=root/paths.front();
-     std::error_code error;
-     if(fs::is_regular_file(path,error))path=path.parent_path();
-     if(fs::is_directory(path,error))ShellExecuteW(hwnd,L"explore",path.c_str(),nullptr,nullptr,SW_SHOWNORMAL);
+     if(!paths.empty())reveal_in_explorer(root/paths.front());
  }
  void open_selected(){
      const int selected=ListView_GetNextItem(list,-1,LVNI_SELECTED);
@@ -1818,6 +1927,9 @@ struct App {
      }
      if(message.hwnd==search&&message.wParam==VK_ESCAPE&&GetWindowTextLengthW(search)>0){
          SetWindowTextW(search,L"");return true;
+     }
+     if(!ctrl&&message.wParam==VK_F2&&message.hwnd==list&&!busy&&!results_stale&&showing_files()&&ListView_GetSelectedCount(list)==1){
+         run_action(ID_RENAME);return true;
      }
      if(!ctrl&&message.wParam==VK_RETURN){
          if(message.hwnd==list&&!busy){open_selected();return true;}
@@ -1927,11 +2039,7 @@ LRESULT CALLBACK main_proc(HWND hwnd,UINT msg,WPARAM w,LPARAM l){
                 }else if(id==ID_CLEAR_FILTER){
                     SetWindowTextW(app->search,L"");SetFocus(app->search);
                 }else if(id==ID_DUPLICATE_VIEW){
-                    if(app->full_overview()){
-                        SendMessageW(app->lens_pick,CB_SETCURSEL,3,0);
-                        SendMessageW(hwnd,WM_COMMAND,MAKEWPARAM(ID_LENS_PICK,CBN_SELCHANGE),(LPARAM)app->lens_pick);
-                    }else if(app->has_scan)app->change_view(2);
-                    SetFocus(app->list);
+                    app->duplicate_shortcut();
                 }else if(id==ID_BROWSE)app->browse();else if(id==ID_SCAN)app->run_scan();
                 else if(id==ID_BASIC_ACTIONS)app->show_action_menu(0);
                 else if(id==ID_THEME_ACTIONS)app->show_action_menu(1);
@@ -1944,6 +2052,13 @@ LRESULT CALLBACK main_proc(HWND hwnd,UINT msg,WPARAM w,LPARAM l){
             }
             case WM_NOTIFY:{auto* hdr=(NMHDR*)l;
                 if(hdr->idFrom==ID_LIST){
+                    if(hdr->code==LVN_GETEMPTYMARKUP){
+                        auto* empty=reinterpret_cast<NMLVEMPTYMARKUP*>(l);
+                        empty->dwFlags=EMF_CENTERED;
+                        const auto message=app->empty_results_message();
+                        lstrcpynW(empty->szMarkup,message.c_str(),int(std::size(empty->szMarkup)));
+                        return TRUE;
+                    }
                     if(hdr->code==NM_CUSTOMDRAW){auto* cd=reinterpret_cast<NMLVCUSTOMDRAW*>(l);
                         if(cd->nmcd.dwDrawStage==CDDS_PREPAINT)return CDRF_NOTIFYITEMDRAW;
                         if(cd->nmcd.dwDrawStage==CDDS_ITEMPREPAINT){cd->clrTextBk=(cd->nmcd.dwItemSpec%2==0)?RGB(255,255,255):RGB(249,251,253);cd->clrText=kText;return CDRF_DODEFAULT;}
