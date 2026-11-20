@@ -166,12 +166,6 @@ public:
    return hex_text(std::string(reinterpret_cast<const char*>(result.data()),result.size()));
  }
 };
-std::wstring extended_path(const fs::path& path) {
- auto value=fs::absolute(path).make_preferred().native();
- if(value.rfind(L"\\\\?\\",0)==0)return value;
- if(value.rfind(L"\\\\",0)==0)return L"\\\\?\\UNC\\"+value.substr(2);
- return L"\\\\?\\"+value;
-}
 class SequentialReader {
  HANDLE handle_=INVALID_HANDLE_VALUE;
 public:

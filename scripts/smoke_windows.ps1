@@ -18,6 +18,36 @@ try {
   New-Item -ItemType Directory -Path (Join-Path $B '空目录') -Force | Out-Null
   [IO.File]::WriteAllText((Join-Path $A '相同.txt'), 'same contents', [Text.UTF8Encoding]::new($false))
   [IO.File]::WriteAllText((Join-Path $B '相同.txt'), 'same contents', [Text.UTF8Encoding]::new($false))
+  # Exclusive access proves inventory can count the file without opening its contents.
+  $inventoryCache = Join-Path $root 'inventory-appdata'
+  $savedLocalAppData = $env:LOCALAPPDATA
+  $locked = [IO.File]::Open((Join-Path $A '相同.txt'), 'Open', 'Read', 'None')
+  try {
+    $env:LOCALAPPDATA = $inventoryCache
+    $inventory = & $cli inventory $root | Out-String
+    if ($LASTEXITCODE -ne 0 -or $inventory.Trim() -cne 'Status=complete Files=2 Folders=5 Bytes=26 ScanErrors=0 DirectoryErrors=0 ReparseSkipped=0 OtherErrors=0') {
+      throw "Unexpected metadata inventory: $inventory"
+    }
+    # An NTFS junction must be counted as skipped rather than followed or named in the summary.
+    if ([IO.DriveInfo]::new([IO.Path]::GetPathRoot($root)).DriveFormat -eq 'NTFS') {
+      $aliasPath = Join-Path $root 'private-folder-alias'
+      New-Item -ItemType Junction -Path $aliasPath -Target $A | Out-Null
+      try {
+        $partial = & $cli inventory $root | Out-String
+        if ($LASTEXITCODE -ne 4 -or $partial.Trim() -cne 'Status=partial Files=2 Folders=5 Bytes=26 ScanErrors=1 DirectoryErrors=0 ReparseSkipped=1 OtherErrors=0') {
+          throw "Unexpected partial metadata inventory: $partial"
+        }
+      } finally {
+        [IO.Directory]::Delete($aliasPath)
+      }
+    }
+    if ((Test-Path -LiteralPath $inventoryCache) -or (Test-Path -LiteralPath (Join-Path $root '.DiskCurator-System'))) {
+      throw 'Metadata inventory wrote an index or transaction workspace'
+    }
+  } finally {
+    $env:LOCALAPPDATA = $savedLocalAppData
+    $locked.Dispose()
+  }
   $duplicated = RunDC @('duplicates',$root)
   if ($duplicated -notmatch 'DuplicateGroups=1') { throw "Unexpected duplicates: $duplicated" }
   $folders = RunDC @('folders',$root)

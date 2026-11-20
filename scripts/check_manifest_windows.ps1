@@ -45,7 +45,7 @@ try {
   $identity = $xml.SelectSingleNode("/*[local-name()='assembly']/*[local-name()='assemblyIdentity']")
   if ($null -eq $identity -or $identity.GetAttribute('version') -ne ($version+'.0')) { throw 'Manifest version mismatch' }
   $description = $xml.SelectSingleNode("/*[local-name()='assembly']/*[local-name()='description']")
-  if ($null -eq $description -or $description.InnerText -cne 'DiskOrganizer') { throw 'Manifest product description mismatch' }
+  if ($null -eq $description -or $description.InnerText -cne 'DiskCurator') { throw 'Manifest product description mismatch' }
   $controls = $xml.SelectSingleNode("//*[local-name()='dependentAssembly']/*[local-name()='assemblyIdentity' and @name='Microsoft.Windows.Common-Controls']")
   if ($null -eq $controls -or $controls.GetAttribute('version') -ne '6.0.0.0') { throw 'Native common controls v6 manifest dependency missing' }
   foreach ($setting in @('longPathAware', 'dpiAware')) {

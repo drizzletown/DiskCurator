@@ -9,9 +9,10 @@
 #include <string>
 #include <vector>
 using namespace dc;
-static void usage(){std::cout<<"DiskOrganizer " DISKCURATOR_VERSION "\n"
+static void usage(){std::cout<<"DiskCurator " DISKCURATOR_VERSION "\n"
   "Find duplicate files, compare backups and organize folders.\n"
   "  dc_cli --help | --version\n  Options may precede operands. Use -- before a path beginning with --.\n"
+  "  dc_cli inventory ROOT  (read-only metadata totals, no index; exit 4 for partial results)\n"
   "  dc_cli scan ROOT\n  dc_cli hashes ROOT\n  dc_cli duplicates ROOT\n  dc_cli folders ROOT\n"
   "  dc_cli compare ROOT RELATIVE_A RELATIVE_B\n  dc_cli pair ROOT RELATIVE_A RELATIVE_B\n  dc_cli relations ROOT\n"
   "  dc_cli similar ROOT [MAX_HAMMING]\n  dc_cli overlaps ROOT [MAX_RESULTS]\n  dc_cli safety ROOT\n"
@@ -31,7 +32,7 @@ struct CommandSpec {
 };
 
 const std::map<std::string, CommandSpec> commands = {
-    {"scan", {0,0}}, {"hashes", {0,0}}, {"history", {0,0}}, {"recover", {0,0}}, {"undo", {0,0}},
+    {"inventory", {0,0}}, {"scan", {0,0}}, {"hashes", {0,0}}, {"history", {0,0}}, {"recover", {0,0}}, {"undo", {0,0}},
     {"duplicates", {0,0,false,false,true}}, {"folders", {0,0,false,false,true}},
     {"compare", {2,2}}, {"pair", {2,2}}, {"similar", {0,1}},
     {"relations", {0,0,false,false,true}}, {"suggest", {0,0,false,false,true}},
@@ -49,6 +50,26 @@ unsigned parse_number(const std::string& text, unsigned maximum, const char* lab
     if (result.ec != std::errc{} || result.ptr != end || value > maximum)
         throw std::runtime_error(std::string(label) + " requires an integer in 0.." + std::to_string(maximum));
     return value;
+}
+
+int run_inventory(const fs::path& root) {
+    double next_update = 5;
+    const auto progress = [&](const ScanProgress& state) {
+        if (state.elapsed_seconds < next_update) return;
+        next_update = state.elapsed_seconds + 5;
+        std::cerr << "Inventory progress: Seconds=" << static_cast<U64>(state.elapsed_seconds)
+                  << " Files=" << state.files_discovered << " Bytes=" << state.total_bytes
+                  << " ScanErrors=" << state.errors << '\n';
+    };
+    const auto summary = scan_inventory(root, progress);
+    const auto errors = summary.error_count();
+    std::cout << "Status=" << (errors ? "partial" : "complete")
+              << " Files=" << summary.file_count << " Folders=" << summary.directory_count
+              << " Bytes=" << summary.bytes << " ScanErrors=" << errors
+              << " DirectoryErrors=" << summary.directory_errors
+              << " ReparseSkipped=" << summary.reparse_skipped
+              << " OtherErrors=" << summary.other_errors << '\n';
+    return errors ? 4 : 0;
 }
 
 struct Arguments {
@@ -99,6 +120,7 @@ static int exec(const std::vector<std::string>& input) {
  const auto apply=args.apply;
  const auto root=from_utf8(input[2]);
  if (root.empty()) throw std::runtime_error("A scan root is required");
+ if (cmd=="inventory") return run_inventory(root);
  if (cmd=="archive" && operands[0]!="type" && operands[0]!="date")
      throw std::runtime_error("Archive mode must be type or date");
  unsigned threshold=7, limit=200;

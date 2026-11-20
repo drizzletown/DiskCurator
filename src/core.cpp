@@ -15,6 +15,7 @@
 #include <random>
 #include <set>
 #include <sstream>
+#include <string_view>
 #include <tuple>
 #include <stdexcept>
 #include <unordered_map>
@@ -58,58 +59,51 @@ static bool reparse(const fs::path& p) {
 #endif
 }
 static void check_abort(const std::atomic_bool* p) {if(p&&p->load()) throw std::runtime_error("Operation canceled");}
-Inventory scan(const fs::path& input, const Progress& progress,const std::atomic_bool* cancel,
-               const ScanProgressCallback& scan_progress) {
-    Inventory inv;std::error_code ec;inv.root=fs::absolute(input,ec).lexically_normal();
-    if(ec||!fs::is_directory(inv.root,ec)||ec||reparse(inv.root))throw std::runtime_error("Root is not a readable ordinary directory");
-    const auto started=std::chrono::steady_clock::now();
-    auto last_report=started;
-    ScanProgress state;state.root=inv.root;state.phase=ScanPhase::Enumerating;
-    auto report=[&](const fs::path& current,bool force=false){
-        const auto now=std::chrono::steady_clock::now();
-        if(!force&&now-last_report<std::chrono::milliseconds(100))return;
-        last_report=now;
-        state.current_file=current;state.files_discovered=inv.files.size();
-        state.total_bytes=inv.bytes;state.errors=inv.errors.size();
-        state.elapsed_seconds=std::chrono::duration<double>(now-started).count();
-        if(scan_progress)scan_progress(state);
-        if(progress)progress("Enumerating: "+std::to_string(inv.files.size())+" files, "+human(inv.bytes));
-    };
-    // These excluded paths are constant for the whole traversal. Resolving the
-    // cache and folding the root for every entry was costly on tiny-file disks.
-    const auto system_key=path_key(inv.root/fs::path(L".DiskCurator-System"));
-    const auto cache_key=path_key(hash_cache_root());
-    report(inv.root,true);
-    inv.dirs.push_back({{},0,0});
-    std::vector<fs::path> todo{inv.root};
-    while(!todo.empty()) {
-        check_abort(cancel);auto dir=todo.back();todo.pop_back();
-        fs::directory_iterator it(dir,fs::directory_options::none,ec),end;
-        if(ec){inv.errors.push_back("Cannot list "+utf8(dir)+": "+ec.message());ec.clear();report(dir);continue;}
-        for(;it!=end;it.increment(ec)){
-            check_abort(cancel);
-            if(ec){inv.errors.push_back("Iteration in "+utf8(dir)+": "+ec.message());ec.clear();break;}
-            auto p=it->path();report(p);
-            const auto entry_key=path_key(p);
-            if(entry_key==system_key&&fs::exists(p/fs::path(L"owner.txt")))continue;
-            // Application's disposable index must not be scanned when the
-            // system drive itself is selected for a full-volume inventory.
-            if(entry_key==cache_key)continue;
-            auto st=it->symlink_status(ec);
-            if(ec){inv.errors.push_back("Cannot stat "+utf8(p)+": "+ec.message());ec.clear();continue;}
-            if(fs::is_symlink(st)||reparse(p)){inv.errors.push_back("Skipped reparse point: "+utf8(p));continue;}
-            auto rel=p.lexically_relative(inv.root);
-            if(!is_inside(rel)) {inv.errors.push_back("Unsafe path: "+utf8(p));continue;}
-            if(fs::is_directory(st)) { inv.dirs.push_back({rel,0,0});todo.push_back(p); }
-            else if(fs::is_regular_file(st)) {
-                auto sz=it->file_size(ec); if(ec){inv.errors.push_back("Cannot size "+utf8(p)+": "+ec.message());ec.clear();continue;}
-                auto mt=it->last_write_time(ec);if(ec){inv.errors.push_back("Cannot time "+utf8(p)+": "+ec.message());ec.clear();continue;}
-                inv.files.push_back({rel,sz,mt,-1,{}});inv.bytes+=sz;
-            }else inv.errors.push_back("Unsupported filesystem object: "+utf8(p));
+#ifdef _WIN32
+std::wstring extended_path(const fs::path& path) {
+ auto value=fs::absolute(path).make_preferred().native();
+ if(value.rfind(L"\\\\?\\",0)==0)return value;
+ if(value.rfind(L"\\\\",0)==0)return L"\\\\?\\UNC\\"+value.substr(2);
+ return L"\\\\?\\"+value;
+}
+
+// Directory records already contain attributes and size. A count-only scan
+// needs no separate metadata request for each file, even on a network volume.
+template<class Visitor>
+static std::error_code read_windows_inventory_directory(const fs::path& dir,Visitor&& visit){
+    const auto pattern=extended_path(dir/L"*");
+    WIN32_FIND_DATAW data{};
+    HANDLE handle=FindFirstFileExW(pattern.c_str(),FindExInfoBasic,&data,FindExSearchNameMatch,nullptr,FIND_FIRST_EX_LARGE_FETCH);
+    if(handle==INVALID_HANDLE_VALUE){
+        auto error=GetLastError();
+        if(error==ERROR_INVALID_PARAMETER||error==ERROR_NOT_SUPPORTED){
+            handle=FindFirstFileW(pattern.c_str(),&data);
+            if(handle==INVALID_HANDLE_VALUE)error=GetLastError();
         }
-        if(ec){inv.errors.push_back("Iteration in "+utf8(dir)+": "+ec.message());ec.clear();}
-        report(dir);
+        if(handle==INVALID_HANDLE_VALUE){
+            if(error==ERROR_FILE_NOT_FOUND||error==ERROR_NO_MORE_FILES)return {};
+            return {static_cast<int>(error),std::system_category()};
+        }
     }
+    struct CloseSearch { HANDLE value; ~CloseSearch(){FindClose(value);} } guard{handle};
+    do{
+        const std::wstring_view name=data.cFileName;
+        if(name==L"."||name==L"..")continue;
+        const auto attr=data.dwFileAttributes;
+        const auto type=(attr&FILE_ATTRIBUTE_REPARSE_POINT)?fs::file_type::symlink:
+                        (attr&FILE_ATTRIBUTE_DIRECTORY)?fs::file_type::directory:
+                        (attr&FILE_ATTRIBUTE_DEVICE)?fs::file_type::unknown:fs::file_type::regular;
+        const U64 size=(U64(data.nFileSizeHigh)<<32)|data.nFileSizeLow;
+        visit(dir/data.cFileName,type,size,fs::file_time_type{});
+    }while(FindNextFileW(handle,&data));
+    const auto error=GetLastError();
+    if(error==ERROR_NO_MORE_FILES)return {};
+    return {static_cast<int>(error),std::system_category()};
+}
+#endif
+
+template<class Report>
+static void finish_inventory(Inventory& inv,const std::atomic_bool* cancel,Report& report) {
     std::sort(inv.files.begin(),inv.files.end(),[](auto&a,auto&b){return a.rel<b.rel;});
     std::sort(inv.dirs.begin(),inv.dirs.end(),[](auto&a,auto&b){return a.rel<b.rel;});
     std::map<fs::path,size_t> idx;for(size_t i=0;i<inv.dirs.size();++i)idx[inv.dirs[i].rel]=i;
@@ -128,7 +122,133 @@ Inventory scan(const fs::path& input, const Progress& progress,const std::atomic
         if(parent!=idx.end()){inv.dirs[parent->second].bytes+=d.bytes;inv.dirs[parent->second].count+=d.count;}
         report(d.rel);
     }
-    state.totals_known=true;report({},true);check_abort(cancel);
+}
+
+static InventorySummary enumerate_metadata(const fs::path& input,Inventory* details,const Progress& progress,
+                                          const std::atomic_bool* cancel,const ScanProgressCallback& scan_progress) {
+    std::error_code ec;
+    const auto root=fs::absolute(input,ec).lexically_normal();
+    if(ec||!fs::is_directory(root,ec)||ec||reparse(root))throw std::runtime_error("Root is not a readable ordinary directory");
+
+    InventorySummary summary;
+    summary.directory_count=1;
+    if(details){
+        details->root=root;
+        details->dirs.push_back({{},0,0});
+    }
+    const auto started=std::chrono::steady_clock::now();
+    auto last_report=started;
+    ScanProgress state;
+    state.root=root;
+    auto report=[&](const fs::path& current,bool force=false){
+        if(!scan_progress&&!progress)return;
+        const auto now=std::chrono::steady_clock::now();
+        if(!force&&now-last_report<std::chrono::milliseconds(100))return;
+        last_report=now;
+        state.current_file=current;
+        state.files_discovered=summary.file_count;
+        state.total_bytes=summary.bytes;
+        state.errors=summary.error_count();
+        state.elapsed_seconds=std::chrono::duration<double>(now-started).count();
+        if(scan_progress)scan_progress(state);
+        if(progress)progress("Enumerating: "+std::to_string(summary.file_count)+" files, "+human(summary.bytes));
+    };
+    auto record=[&](U64& counter,const char* message,const fs::path& path){
+        ++counter;
+        if(details)details->errors.push_back(message+utf8(path)+(ec?": "+ec.message():""));
+        ec.clear();
+    };
+    const auto cache=hash_cache_root();
+    const auto cache_parent=path_key(cache.parent_path());
+    const auto cache_name=component_key(cache);
+    report(root,true);
+    std::vector<fs::path> todo{root};
+    while(!todo.empty()){
+        check_abort(cancel);
+        auto dir=std::move(todo.back());
+        todo.pop_back();
+        const bool at_root=dir==root;
+        const bool at_cache_parent=path_key(dir)==cache_parent;
+        auto visit=[&](const fs::path& path,fs::file_type type,U64 size,fs::file_time_type mtime){
+            check_abort(cancel);
+            report(path);
+            if(at_cache_parent&&component_key(path)==cache_name)return;
+            if(type==fs::file_type::symlink){record(summary.reparse_skipped,"Skipped reparse point: ",path);return;}
+            if(type==fs::file_type::directory&&at_root&&component_key(path)==L".diskcurator-system"){
+                const bool owned=fs::exists(path/L"owner.txt",ec);
+                if(ec){record(summary.directory_errors,"Cannot inspect reserved directory ",path);return;}
+                if(owned)return;
+            }
+            // Both iterators yield immediate children and omit '.' and '..'.
+            // Only the detailed result needs the root-relative path of each entry.
+            fs::path relative;
+            if(details){
+                relative=path.lexically_relative(root);
+                if(!is_inside(relative)){record(summary.other_errors,"Unsafe path: ",path);return;}
+            }
+            if(type==fs::file_type::directory){
+                ++summary.directory_count;
+                if(details)details->dirs.push_back({relative,0,0});
+                todo.push_back(path);
+            }else if(type==fs::file_type::regular){
+                if(details)details->files.push_back({relative,size,mtime,-1,{}});
+                ++summary.file_count;
+                summary.bytes+=size;
+            }else record(summary.other_errors,"Unsupported filesystem object: ",path);
+        };
+#ifdef _WIN32
+        if(!details){
+            ec=read_windows_inventory_directory(dir,visit);
+            if(ec)record(summary.directory_errors,"Cannot enumerate ",dir);
+            report(dir);
+            continue;
+        }
+#endif
+        fs::directory_iterator it(dir,fs::directory_options::none,ec),end;
+        if(ec){record(summary.directory_errors,"Cannot list ",dir);report(dir);continue;}
+        for(;it!=end;it.increment(ec)){
+            check_abort(cancel);
+            if(ec)break;
+            const auto& path=it->path();
+            const auto status=it->symlink_status(ec);
+            if(ec){record(summary.other_errors,"Cannot stat ",path);continue;}
+            auto type=status.type();
+#ifdef _WIN32
+            if(reparse(path))type=fs::file_type::symlink;
+#endif
+            U64 size=0;
+            fs::file_time_type mtime{};
+            if(type==fs::file_type::regular){
+                size=it->file_size(ec);
+                if(ec){record(summary.other_errors,"Cannot size ",path);continue;}
+                if(details){
+                    mtime=it->last_write_time(ec);
+                    if(ec){record(summary.other_errors,"Cannot time ",path);continue;}
+                }
+            }
+            visit(path,type,size,mtime);
+        }
+        if(ec)record(summary.directory_errors,"Iteration in ",dir);
+        report(dir);
+    }
+    if(details){
+        details->bytes=summary.bytes;
+        finish_inventory(*details,cancel,report);
+    }
+    state.totals_known=true;
+    report({},true);
+    check_abort(cancel);
+    return summary;
+}
+
+InventorySummary scan_inventory(const fs::path& root,const ScanProgressCallback& scan_progress,const std::atomic_bool* cancel){
+    return enumerate_metadata(root,nullptr,{},cancel,scan_progress);
+}
+
+Inventory scan(const fs::path& root,const Progress& progress,const std::atomic_bool* cancel,
+               const ScanProgressCallback& scan_progress) {
+    Inventory inv;
+    enumerate_metadata(root,&inv,progress,cancel,scan_progress);
     return inv;
 }
 static constexpr U64 FNV=14695981039346656037ULL;
@@ -1143,7 +1263,7 @@ struct RootMutationLock {
         if(!handle)throw std::runtime_error("Cannot acquire root operation mutex");
         auto state=WaitForSingleObject(handle,0);
         if(state!=WAIT_OBJECT_0&&state!=WAIT_ABANDONED){CloseHandle(handle);handle=nullptr;
-            throw std::runtime_error("Another DiskOrganizer instance is changing this directory");}
+            throw std::runtime_error("Another DiskCurator instance is changing this directory");}
         owns=true;
     }
     ~RootMutationLock(){if(owns)ReleaseMutex(handle);if(handle)CloseHandle(handle);}
@@ -1947,7 +2067,7 @@ StructurePlan plan_structure(const Inventory& inv,const StructureSuggestion& pro
         bool known_output=false;
         for(const auto& h:history(inv.root))
             if(h.label==marker&&(h.status=="DONE"||h.status=="PARTIAL"))known_output=true;
-        if(!known_output)throw std::runtime_error("Proposed output folder already contains user data and was not created by DiskOrganizer; choose a new output folder");
+        if(!known_output)throw std::runtime_error("Proposed output folder already contains user data and was not created by DiskCurator; choose a new output folder");
     }
     // File-level explicit mappings take precedence over heuristic category rules.
     // Targets are relative to output_base, never absolute or outside the selected root.

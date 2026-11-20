@@ -53,7 +53,7 @@ foreach ($file in $deliverables) {
 $logHash=(Get-FileHash -LiteralPath $testLog -Algorithm SHA256).Hash.ToLowerInvariant()
 $receipt=Join-Path $BuildDir 'diskcurator-windows-validation.txt'
 $body = @(
-  "DiskOrganizer $version / automated Windows validation receipt",
+  "DiskCurator $version / automated Windows validation receipt",
   ('UTC: '+[DateTime]::UtcNow.ToString('o')),
   ('OS: '+[Environment]::OSVersion.VersionString),
   'Build: Visual Studio 2022 Win64 Release',

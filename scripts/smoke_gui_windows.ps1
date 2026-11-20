@@ -268,7 +268,7 @@ try {
     # Exercise the compact layout without showing the test window or moving mouse focus.
     if (-not [DiskCuratorGuiSmoke]::SetWindowPos($script:window,[IntPtr]::Zero,0,0,820,600,0x16)) { throw 'Cannot size the test window' }
     Assert-Layout @(253,254,255,256) 'welcome at 820x600'
-    Assert-Hidden @(100,101,102,103,114,115,230,231,243,257) 'welcome without a selected range'
+    Assert-Hidden @(100,101,102,103,114,115,230,231,243,257,258) 'welcome without a selected range'
     Save-TestWindow '01-welcome.png'
     $scope=[DiskCuratorGuiSmoke]::GetDlgItem($script:window,230)
     $rootEdit=[DiskCuratorGuiSmoke]::GetDlgItem($script:window,100)
@@ -311,7 +311,27 @@ try {
     # The first scan has one unique file and no duplicate groups. The empty
     # result must not insert a synthetic, selectable file into the list.
     Set-ControlText $rootEdit $folderA
-    Assert-Layout @(100,101,102,230) 'selected folder before scanning'
+    Assert-Layout @(100,101,102,230,258) 'selected folder before scanning'
+    $quickButton=[DiskCuratorGuiSmoke]::GetDlgItem($script:window,258)
+    if ((Get-ControlText $quickButton) -ne '快速盘点') { throw 'A selected folder must offer quick inventory' }
+    $file=Join-Path $folderA '甲.txt'
+    $before=[IO.File]::GetLastWriteTimeUtc($file)
+    $expectedCounts="1 个文件 · 1 个目录 · $((Get-Item -LiteralPath $file).Length) B"
+    [void][DiskCuratorGuiSmoke]::SendMessage($quickButton,0x00F5,[IntPtr]::Zero,[IntPtr]::Zero)
+    Wait-Ready 'metadata-only inventory'
+    $headline=[DiskCuratorGuiSmoke]::GetDlgItem($script:window,253)
+    $detail=[DiskCuratorGuiSmoke]::GetDlgItem($script:window,254)
+    if ((Get-ControlText $headline) -cne '快速盘点完成' -or (Get-ControlText $detail) -cne $expectedCounts) {
+        throw "Unexpected quick inventory results: $(Get-ControlText $headline) / $(Get-ControlText $detail)"
+    }
+    if ((Get-ControlText $rootEdit) -cne $folderA -or (Get-ControlText $script:scanButton) -cne '开始扫描') { throw 'Inventory must preserve the selected scope for a full scan' }
+    Assert-Hidden @(108,114,115,231,240,241,242,257) 'metadata-only result'
+    if ((Test-Path -LiteralPath (Join-Path $folderA '.DiskCurator-System')) -or
+        @(Get-ChildItem -LiteralPath $folderA -Force).Count -ne 1 -or
+        [IO.File]::GetLastWriteTimeUtc($file) -ne $before -or [IO.File]::ReadAllText($file) -cne 'same-content') { throw 'Quick inventory modified its fixture' }
+    if ((Test-Path -LiteralPath $cacheLocation -PathType Container) -and
+        @(Get-ChildItem -LiteralPath $cacheLocation -Recurse -File -Force).Count -gt 0) { throw 'Quick inventory wrote a cache file' }
+    Write-Host 'PASS quick inventory: count and size shown without modifying the fixture or writing an index; the original scope remains available for SHA-256 scanning.'
     Assert-Hidden @(103,243) 'idle before scanning'
     if (-not [DiskCuratorGuiSmoke]::IsWindowEnabled($script:scanButton)) { throw 'A selected folder must enable scanning' }
     [void][DiskCuratorGuiSmoke]::SendMessage($script:scanButton,0x00F5,[IntPtr]::Zero,[IntPtr]::Zero)
@@ -324,6 +344,25 @@ try {
     Click-DuplicateShortcut '返回文件'
     Wait-Lens 0 'return to the unique file'
     Wait-Rows 1 'return to the unique file'
+    # An unavailable file should leave the readable results open and identify
+    # the affected path in the overview. No special account rights are needed.
+    $lockedPath=Join-Path $folderA '正在使用.bin'
+    $locked=[IO.File]::Open($lockedPath,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+    try {
+        $locked.WriteByte(17)
+        $locked.Flush()
+        [void][DiskCuratorGuiSmoke]::SendMessage($script:scanButton,0x00F5,[IntPtr]::Zero,[IntPtr]::Zero)
+        Wait-Lens 0 'partial scan without a blocking dialog'
+        if ((Get-ControlText $status) -notlike '*扫描不完整*1 项异常*扫描概览*') { throw 'Partial results must point to the issue count and details' }
+        Set-Lens 12
+        Set-ControlText $search '正在使用.bin'
+        Wait-Rows 1 'unreadable file in scan overview'
+        if ((Get-ControlText $status) -notlike '*扫描不完整*') { throw 'Filtered results lost the partial scan warning' }
+        Write-Host 'PASS partial scan: accessible results stay open and the overview identifies the unreadable file.'
+    } finally {
+        $locked.Dispose()
+        Remove-Item -LiteralPath $lockedPath -Force
+    }
     Set-ControlText $rootEdit $fixture
     [void][DiskCuratorGuiSmoke]::SendMessage($script:scanButton,0x00F5,[IntPtr]::Zero,[IntPtr]::Zero)
     Wait-Ready 'Unicode content scan'

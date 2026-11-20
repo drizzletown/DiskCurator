@@ -16,6 +16,9 @@ using U64 = std::uint64_t;
 std::string utf8(const fs::path& p);
 fs::path from_utf8(const std::string& s);
 std::string human(U64 n);
+#ifdef _WIN32
+std::wstring extended_path(const fs::path& path);
+#endif
 std::string lowercase(std::string s);
 std::string extension_category(const fs::path& p);
 bool glob(const std::wstring& pattern, const std::wstring& text);
@@ -34,6 +37,14 @@ struct Inventory {
     U64 bytes=0;
     bool complete() const { return errors.empty(); }
 };
+struct InventorySummary {
+    U64 file_count=0, directory_count=0, bytes=0;
+    U64 directory_errors=0, reparse_skipped=0, other_errors=0;
+    U64 error_count() const { return directory_errors + reparse_skipped + other_errors; }
+};
+// Count ordinary entries without retaining a file list, reading contents or saving a cache.
+InventorySummary scan_inventory(const fs::path& root, const ScanProgressCallback& scan_progress={},
+                                const std::atomic_bool* cancel=nullptr);
 using Progress = std::function<void(const std::string&)>;
 Inventory scan(const fs::path& root, const Progress& progress={}, const std::atomic_bool* cancel=nullptr,
                const ScanProgressCallback& scan_progress={});

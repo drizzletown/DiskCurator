@@ -23,6 +23,24 @@ int main(){
         write_file(b/"backup"/"2.jpg","same bytes");
         write_file(a/"unique.txt","different bytes");
         fs::create_directories(b/"empty");
+        // A count-only scan returns the same totals without retaining paths or making a cache.
+        const auto counts_root=base/"counts";
+        write_file(counts_root/"x"/"data.txt","abc");
+        fs::create_directories(counts_root/"empty");
+        write_file(counts_root/".DiskCurator-System"/"owner.txt","reserved");
+        write_file(counts_root/".DiskCurator-System"/"internal.bin","not user data");
+        std::error_code link_error;
+        fs::create_directory_symlink(counts_root,counts_root/"cycle",link_error);
+        dc::ScanProgress last;
+        const auto counts=dc::scan_inventory(counts_root,[&](const dc::ScanProgress& p){last=p;});
+        std::atomic_bool stop{false};
+        assert(fails([&]{dc::scan_inventory(counts_root,[&](const auto&){stop=true;},&stop);}));
+        const auto detailed=dc::scan(counts_root);
+        assert(counts.file_count==1 && counts.directory_count==3 && counts.bytes==3);
+        assert(counts.file_count==detailed.files.size() && counts.directory_count==detailed.dirs.size());
+        assert(counts.reparse_skipped==(link_error?0U:1U) && counts.error_count()==detailed.errors.size());
+        assert(last.totals_known && last.files_discovered==1 && last.total_bytes==3 && last.bytes_read==0);
+        assert(last.errors==counts.error_count() && counts.directory_errors==0 && counts.other_errors==0);
         auto report=dc::scan_roots_hashed({a,b});
         assert(report.volumes.size()==2);
         assert(report.total_files==3);

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(DiskCuratorNative VERSION 1.0.7 LANGUAGES CXX)
+project(DiskCuratorNative VERSION 1.0.8 LANGUAGES CXX)
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/diskcurator-version.txt" "${PROJECT_VERSION}\n")
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

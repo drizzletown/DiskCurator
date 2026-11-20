@@ -6,10 +6,10 @@ if (-not [IO.Path]::IsPathRooted($BuildDir)) { $BuildDir = Join-Path $project $B
 if (-not [IO.Path]::IsPathRooted($OutputDir)) { $OutputDir = Join-Path $project $OutputDir }
 $version = [IO.File]::ReadAllText((Join-Path $BuildDir 'diskcurator-version.txt')).Trim()
 if ($version -notmatch '^\d+\.\d+\.\d+$') { throw 'Invalid release version' }
-$name = "DiskOrganizer-v$version"
+$name = "DiskCurator-v$version"
 $receipt = Join-Path $BuildDir 'diskcurator-windows-validation.txt'
 $receiptLines = [IO.File]::ReadAllLines($receipt)
-if ($receiptLines -notcontains "DiskOrganizer $version / automated Windows validation receipt") { throw 'Validation receipt version mismatch' }
+if ($receiptLines -notcontains "DiskCurator $version / automated Windows validation receipt") { throw 'Validation receipt version mismatch' }
 function Get-Digest([string]$file) { (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant() }
 $log = Join-Path $BuildDir 'Testing\Temporary\LastTest.log'
 if ($receiptLines -notcontains ('CTest LastTest.log SHA256: '+(Get-Digest $log))) { throw 'CTest evidence changed after validation' }

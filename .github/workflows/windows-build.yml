@@ -24,8 +24,8 @@ jobs:
       - name: Upload Win64 portable ZIP and checksum
         uses: actions/upload-artifact@v4
         with:
-          name: DiskOrganizer-Win64
+          name: DiskCurator-Win64
           path: |
-            dist/DiskOrganizer-v*-Win64.zip
-            dist/DiskOrganizer-v*-Win64.zip.sha256
+            dist/DiskCurator-v*-Win64.zip
+            dist/DiskCurator-v*-Win64.zip.sha256
           if-no-files-found: error

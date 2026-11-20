@@ -1,4 +1,4 @@
-# 赞赏 DiskOrganizer
+# 赞赏 DiskCurator
 
 如果磁盘文件整理助手帮你省了时间，欢迎通过微信赞赏，支持后续维护。
 
