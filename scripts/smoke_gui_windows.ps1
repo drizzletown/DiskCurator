@@ -44,15 +44,26 @@ public static class DiskCuratorGuiSmoke {
                child.right<=offset.x+client.right && child.bottom<=offset.y+client.bottom;
     }
     [DllImport("user32.dll")] static extern bool EnumChildWindows(IntPtr parent, EnumProc callback, IntPtr data);
+    [DllImport("user32.dll")] static extern int GetDlgCtrlID(IntPtr control);
+    [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetWindowText(IntPtr window, StringBuilder text, int count);
     public static string DialogBody(IntPtr parent) {
         var result = new StringBuilder();
         EnumChildWindows(parent,delegate(IntPtr child,IntPtr unused) {
             var className = new StringBuilder(80); GetClassName(child,className,80);
-            if (className.ToString() == "Static") {
+            if (String.Equals(className.ToString(),"Static",StringComparison.OrdinalIgnoreCase)) {
                 var buffer = new StringBuilder(8192);
                 GetText(child,0x000D,new IntPtr(buffer.Capacity),buffer);
                 result.AppendLine(buffer.ToString());
             }
+            return true;
+        },IntPtr.Zero);
+        return result.ToString();
+    }
+    public static string DescribeChildren(IntPtr parent) {
+        var result = new StringBuilder();
+        EnumChildWindows(parent,delegate(IntPtr child,IntPtr unused) {
+            var name = new StringBuilder(80); GetClassName(child,name,80);
+            result.AppendFormat("{0}#{1} ",name,GetDlgCtrlID(child));
             return true;
         },IntPtr.Zero);
         return result.ToString();
@@ -88,12 +99,19 @@ public static class DiskCuratorGuiSmoke {
         } finally { ShowWindow(window,0); }
     }
     public static IntPtr FindOwned(uint process, string wantedClass) {
+        return FindOwned(process,wantedClass,null);
+    }
+    public static IntPtr FindOwned(uint process, string wantedClass, string wantedTitle) {
         IntPtr found=IntPtr.Zero;
         EnumWindows(delegate(IntPtr h, IntPtr unused) {
             uint owner; GetWindowThreadProcessId(h,out owner);
             if(owner!=process) return true;
             var name=new StringBuilder(256); GetClassName(h,name,256);
-            if(name.ToString()!=wantedClass) return true;
+            if(!String.Equals(name.ToString(),wantedClass,StringComparison.OrdinalIgnoreCase)) return true;
+            if(!String.IsNullOrEmpty(wantedTitle)) {
+                var title=new StringBuilder(512); GetWindowText(h,title,title.Capacity);
+                if(title.ToString()!=wantedTitle) return true;
+            }
             found=h; return false;
         },IntPtr.Zero);
         return found;
@@ -153,14 +171,36 @@ function Wait-Lens([int]$expected,[string]$phase) {
     } while ([DateTime]::UtcNow -lt $deadline)
     throw "GUI ${phase}: expected perspective $expected, got $actual"
 }
-function Wait-Dialog([string]$class,[string]$phase) {
-    for ($i=0;$i -lt 100;$i++) {
+function Wait-Dialog([string]$class,[string]$phase,[string]$title,[int[]]$requiredControls,[string[]]$bodyParts=@()) {
+    $deadline=[DateTime]::UtcNow.AddSeconds(15)
+    $processId=[uint32]$script:process.Id
+    $body=''
+    do {
         if ($script:process.HasExited) { throw "GUI exited during ${phase}" }
-        $window=[DiskCuratorGuiSmoke]::FindOwned([uint32]$script:process.Id,$class)
-        if ($window -ne [IntPtr]::Zero -and -not [DiskCuratorGuiSmoke]::IsWindowEnabled($script:window)) { return $window }
+        $window=[DiskCuratorGuiSmoke]::FindOwned($processId,$class,$title)
+        if ($window -ne [IntPtr]::Zero -and [DiskCuratorGuiSmoke]::HasVisibleStyle($window) -and
+            -not [DiskCuratorGuiSmoke]::IsWindowEnabled($script:window)) {
+            $ready=$true
+            foreach ($id in $requiredControls) {
+                $control=[DiskCuratorGuiSmoke]::GetDlgItem($window,$id)
+                if ($control -eq [IntPtr]::Zero -or -not [DiskCuratorGuiSmoke]::IsWindowEnabled($control)) { $ready=$false; break }
+            }
+            if ($ready -and $bodyParts.Count) {
+                # MessageBox creates the top-level window before all localized child text is available.
+                $body=[DiskCuratorGuiSmoke]::DialogBody($window)
+                foreach ($part in $bodyParts) {
+                    if (-not $body.Contains($part)) { $ready=$false; break }
+                }
+            }
+            if ($ready) { return $window }
+        }
         Start-Sleep -Milliseconds 50
+    } while ([DateTime]::UtcNow -lt $deadline)
+    if ($window -eq [IntPtr]::Zero) { $window=[DiskCuratorGuiSmoke]::FindOwned($processId,$class) }
+    if ($window -ne [IntPtr]::Zero) {
+        throw "GUI ${phase}: expected '$title' with controls [$requiredControls] and text [$bodyParts]. Found '$(Get-ControlText $window)', children $([DiskCuratorGuiSmoke]::DescribeChildren($window)), confirmation body [$body]"
     }
-    throw "Expected dialog missing: $phase"
+    throw "GUI ${phase}: expected '$title' dialog missing."
 }
 function Close-TestDialog([IntPtr]$dialog) {
     [void][DiskCuratorGuiSmoke]::PostMessage($dialog,0x0010,[IntPtr]::Zero,[IntPtr]::Zero)
@@ -225,7 +265,7 @@ try {
     # Follow both visible entry points. Cancel both pickers; only the synthetic path below is submitted.
     $driveEntry=[DiskCuratorGuiSmoke]::GetDlgItem($script:window,256)
     [void][DiskCuratorGuiSmoke]::PostMessage($driveEntry,0x00F5,[IntPtr]::Zero,[IntPtr]::Zero)
-    $driveDialog=Wait-Dialog 'DCFormNative' 'drive selection'
+    $driveDialog=Wait-Dialog 'DCFormNative' 'drive selection' '' @(1,2,2000)
     $driveCount=0
     while ($true) {
         $box=[DiskCuratorGuiSmoke]::GetDlgItem($driveDialog,2000+$driveCount)
@@ -237,7 +277,7 @@ try {
     Close-TestDialog $driveDialog
     $folderEntry=[DiskCuratorGuiSmoke]::GetDlgItem($script:window,255)
     [void][DiskCuratorGuiSmoke]::PostMessage($folderEntry,0x00F5,[IntPtr]::Zero,[IntPtr]::Zero)
-    $folderDialog=Wait-Dialog '#32770' 'folder selection'
+    $folderDialog=Wait-Dialog '#32770' 'folder selection' '选择要扫描的文件夹' @(2)
     Close-TestDialog $folderDialog
     if ([DiskCuratorGuiSmoke]::SendMessage($scope,0x147,[IntPtr]::Zero,[IntPtr]::Zero).ToInt32() -ne 1) {
         [void][DiskCuratorGuiSmoke]::SendMessage($scope,0x14E,[IntPtr]1,[IntPtr]::Zero)
@@ -294,7 +334,7 @@ try {
     Set-ControlText $search '甲.txt';Wait-Rows 1 'select file for direct rename'
     Send-Action 5107
     Send-Action 105
-    $rename=Wait-Dialog 'DCFormNative' 'single file rename'
+    $rename=Wait-Dialog 'DCFormNative' 'single file rename' '' @(1,2,2000)
     $newName=[DiskCuratorGuiSmoke]::GetDlgItem($rename,2000)
     if ((Get-ControlText $newName) -cne '甲.txt' -or [DiskCuratorGuiSmoke]::GetDlgItem($rename,2001) -ne [IntPtr]::Zero) { throw 'Single-file rename should open one prefilled name field' }
     Set-ControlText $newName '已更名.txt'
@@ -302,9 +342,7 @@ try {
     Wait-Lens 9 'single-file rename preview'
     Set-ControlText $search '已更名.txt';Wait-Rows 1 'one mapped rename destination'
     Send-Action 108
-    $renameConfirm=Wait-Dialog '#32770' 'review single file rename'
-    $body=[DiskCuratorGuiSmoke]::DialogBody($renameConfirm)
-    if (-not ($body.Contains($fixture) -and $body.Contains('甲.txt') -and $body.Contains('已更名.txt'))) { throw "Rename confirmation missing expected root or filenames. Fixture=$fixture; confirmation=$body" }
+    $renameConfirm=Wait-Dialog '#32770' 'review single file rename' '确认执行操作计划' @(6,7) @($fixture,'甲.txt','已更名.txt')
     $defaultButton=[DiskCuratorGuiSmoke]::SendMessage($renameConfirm,0x0400,[IntPtr]::Zero,[IntPtr]::Zero).ToInt64() -band 0xffff
     if ($defaultButton -ne 7) { throw 'The execution confirmation must default to No' }
     $no=[DiskCuratorGuiSmoke]::GetDlgItem($renameConfirm,7)
@@ -313,7 +351,7 @@ try {
     if ((Test-Path -LiteralPath (Join-Path $folderA '已更名.txt')) -or -not (Test-Path -LiteralPath (Join-Path $folderA '甲.txt'))) { throw 'Declining confirmation changed the source file' }
     Set-Lens 0;Wait-Rows 3 'back to files after declined preview'
     Send-Action 106
-    $archiveDialog=Wait-Dialog 'DCFormNative' 'archive options'
+    $archiveDialog=Wait-Dialog 'DCFormNative' 'archive options' '' @(1,2,2000)
     $mode=[DiskCuratorGuiSmoke]::GetDlgItem($archiveDialog,2000)
     if ([DiskCuratorGuiSmoke]::SendMessage($mode,0x146,[IntPtr]::Zero,[IntPtr]::Zero).ToInt32() -ne 2 -or
         [DiskCuratorGuiSmoke]::SendMessage($mode,0x147,[IntPtr]::Zero,[IntPtr]::Zero).ToInt32() -ne 0) { throw 'Archive options must provide two choices with type selected' }
@@ -322,7 +360,7 @@ try {
     if ((Get-ControlText $mode) -notlike '*年月*') { throw 'Date archive choice lacks a readable label' }
     Close-TestDialog $archiveDialog
     Send-Action 5106
-    $policyDialog=Wait-Dialog 'DCFormNative' 'retention settings'
+    $policyDialog=Wait-Dialog 'DCFormNative' 'retention settings' '' @(1,2,2000)
     $number=[DiskCuratorGuiSmoke]::GetDlgItem($policyDialog,2000)
     Set-ControlText $number '3abc'
     [void][DiskCuratorGuiSmoke]::SendMessage($policyDialog,0x111,[IntPtr]1,[IntPtr]::Zero)
@@ -361,17 +399,8 @@ try {
         Send-Action 121
         Wait-Lens 9 'rebuilt preview after scope change'
         Send-Action 108
-        $dialog=[IntPtr]::Zero
-        $deadline=[DateTime]::UtcNow.AddSeconds(10)
-        while ([DateTime]::UtcNow -lt $deadline) {
-            $dialog=[DiskCuratorGuiSmoke]::FindOwned([uint32]$script:process.Id,'#32770')
-            if ($dialog -ne [IntPtr]::Zero -and (Get-ControlText $dialog) -eq '确认执行操作计划') { break }
-            Start-Sleep -Milliseconds 50
-        }
-        if ($dialog -eq [IntPtr]::Zero -or (Get-ControlText $dialog) -ne '确认执行操作计划' -or
-            (Get-ControlText $rootEdit) -cne $fixture) { throw 'Unexpected operation or fixture root during apply test' }
-        $body=[DiskCuratorGuiSmoke]::DialogBody($dialog)
-        if (-not ($body.Contains($fixture) -and $body.Contains('整理结果'))) { throw 'Copy confirmation did not identify the operation root and destination' }
+        $dialog=Wait-Dialog '#32770' 'review fixture copy' '确认执行操作计划' @(6,7) @($fixture,'整理结果')
+        if ((Get-ControlText $rootEdit) -cne $fixture) { throw 'Unexpected fixture root during apply test' }
         $yes=[DiskCuratorGuiSmoke]::GetDlgItem($dialog,6)
         if ($yes -eq [IntPtr]::Zero) { throw 'Expected confirmation button missing' }
         [void][DiskCuratorGuiSmoke]::PostMessage($dialog,0x0111,[IntPtr]6,$yes)
