@@ -4,9 +4,16 @@ Set-StrictMode -Version Latest
 
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 if (-not [IO.Path]::IsPathRooted($BuildDir)) { $BuildDir = Join-Path $root $BuildDir }
-$exe = Join-Path $BuildDir 'Release\DiskCurator.exe'
+$productName = '文件查重与整理助手'
+$exe = Join-Path $BuildDir "Release\$productName.exe"
 if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
   throw "Win32 GUI executable not found: $exe"
+}
+
+$fileInfo = [Diagnostics.FileVersionInfo]::GetVersionInfo($exe)
+if ($fileInfo.ProductName -cne $productName -or $fileInfo.FileDescription -cne $productName -or
+    $fileInfo.OriginalFilename -cne [IO.Path]::GetFileName($exe)) {
+  throw "Unexpected Windows product name, file description or original filename in $exe."
 }
 
 # A manifest is explicitly compiled as RT_MANIFEST/#1 by src/app.rc.
@@ -29,7 +36,7 @@ if (-not $mtPath) { throw 'Windows SDK mt.exe not found; cannot verify embedded 
 $tempManifest = Join-Path ([IO.Path]::GetTempPath()) ("DiskCurator-manifest-$([guid]::NewGuid().ToString('N')).xml")
 try {
   & $mtPath "-inputresource:$exe;#1" "-out:$tempManifest" -nologo
-  if ($LASTEXITCODE -ne 0) { throw "Failed to extract RT_MANIFEST #1 from DiskCurator.exe (mt.exe exit $LASTEXITCODE)." }
+  if ($LASTEXITCODE -ne 0) { throw "Failed to extract RT_MANIFEST #1 from $exe (mt.exe exit $LASTEXITCODE)." }
   [xml]$xml = Get-Content -LiteralPath $tempManifest -Raw
   if ($null -eq $xml.SelectSingleNode("/*[local-name()='assembly']")) {
     throw 'Unexpected root element in the embedded application manifest.'
@@ -37,6 +44,8 @@ try {
   $version = [IO.File]::ReadAllText((Join-Path $BuildDir 'diskcurator-version.txt')).Trim()
   $identity = $xml.SelectSingleNode("/*[local-name()='assembly']/*[local-name()='assemblyIdentity']")
   if ($null -eq $identity -or $identity.GetAttribute('version') -ne ($version+'.0')) { throw 'Manifest version mismatch' }
+  $description = $xml.SelectSingleNode("/*[local-name()='assembly']/*[local-name()='description']")
+  if ($null -eq $description -or $description.InnerText -cne 'File Dedup Organizer') { throw 'Manifest product description mismatch' }
   $controls = $xml.SelectSingleNode("//*[local-name()='dependentAssembly']/*[local-name()='assemblyIdentity' and @name='Microsoft.Windows.Common-Controls']")
   if ($null -eq $controls -or $controls.GetAttribute('version') -ne '6.0.0.0') { throw 'Native common controls v6 manifest dependency missing' }
   foreach ($setting in @('longPathAware', 'dpiAware')) {
@@ -45,7 +54,7 @@ try {
       throw "Embedded manifest is missing required $setting=true setting."
     }
   }
-  Write-Host 'DiskCurator.exe contains RT_MANIFEST #1 with Common Controls v6, longPathAware=true and dpiAware=true.'
+  Write-Host "$productName.exe contains the correct product name, Common Controls v6, longPathAware=true and dpiAware=true."
 }
 finally {
   if (Test-Path -LiteralPath $tempManifest) { Remove-Item -LiteralPath $tempManifest -Force }

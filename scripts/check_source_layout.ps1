@@ -97,4 +97,4 @@ foreach ($script in $psScripts) {
 }
 Write-Host "PowerShell parser check passed: $($psScripts.Count) scripts."
 Write-Host "PowerShell encoding check passed: non-ASCII scripts have valid UTF-8 BOM."
-Write-Host "DiskCurator source distribution complete: $($required.Count) required files."
+Write-Host "File Dedup Organizer source distribution complete: $($required.Count) required files."

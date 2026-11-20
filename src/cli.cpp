@@ -9,7 +9,8 @@
 #include <string>
 #include <vector>
 using namespace dc;
-static void usage(){std::cout<<"DiskCurator Native " DISKCURATOR_VERSION " (C++17)\n"
+static void usage(){std::cout<<"File Dedup Organizer " DISKCURATOR_VERSION "\n"
+  "Find duplicate files, compare backups and organize folders.\n"
   "  dc_cli --help | --version\n  Options may precede operands. Use -- before a path beginning with --.\n"
   "  dc_cli scan ROOT\n  dc_cli hashes ROOT\n  dc_cli duplicates ROOT\n  dc_cli folders ROOT\n"
   "  dc_cli compare ROOT RELATIVE_A RELATIVE_B\n  dc_cli pair ROOT RELATIVE_A RELATIVE_B\n  dc_cli relations ROOT\n"

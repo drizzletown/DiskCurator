@@ -1,6 +1,6 @@
 # Windows 构建与验收
 
-每个通过结论绑定到一个构建及其执行记录。需求、通过条件和对应的 CTest/脚本见[需求矩阵](REQUIREMENTS.md)。本版结果见[发布验收记录](RELEASE-ACCEPTANCE.md)和 [Windows 自动验收日志](qa/v1.0.5-windows-validation.txt)。
+每个通过结论绑定到一个构建及其执行记录。需求、通过条件和对应的 CTest/脚本见[需求矩阵](REQUIREMENTS.md)。本版结果见[发布验收记录](RELEASE-ACCEPTANCE.md)和 [Windows 自动验收日志](qa/v1.0.6-windows-validation.txt)。
 
 ## 构建并执行发布检查
 

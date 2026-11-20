@@ -6,10 +6,10 @@ if (-not [IO.Path]::IsPathRooted($BuildDir)) { $BuildDir = Join-Path $project $B
 if (-not [IO.Path]::IsPathRooted($OutputDir)) { $OutputDir = Join-Path $project $OutputDir }
 $version = [IO.File]::ReadAllText((Join-Path $BuildDir 'diskcurator-version.txt')).Trim()
 if ($version -notmatch '^\d+\.\d+\.\d+$') { throw 'Invalid release version' }
-$name = "DiskCurator-Native-v$version"
+$name = "File-Dedup-Organizer-v$version"
 $receipt = Join-Path $BuildDir 'diskcurator-windows-validation.txt'
 $receiptLines = [IO.File]::ReadAllLines($receipt)
-if ($receiptLines -notcontains "DiskCurator-Native-$version / automated Windows validation receipt") { throw 'Validation receipt version mismatch' }
+if ($receiptLines -notcontains "File Dedup Organizer $version / automated Windows validation receipt") { throw 'Validation receipt version mismatch' }
 function Get-Digest([string]$file) { (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant() }
 $log = Join-Path $BuildDir 'Testing\Temporary\LastTest.log'
 if ($receiptLines -notcontains ('CTest LastTest.log SHA256: '+(Get-Digest $log))) { throw 'CTest evidence changed after validation' }
@@ -23,7 +23,7 @@ $zip = Join-Path $outputRoot "$name-Win64.zip"
 New-Item -ItemType Directory -Path $temp | Out-Null
 try {
   New-Item -ItemType Directory -Path $stage | Out-Null
-  $binaries = @('DiskCurator.exe','dc_cli.exe')
+  $binaries = @('文件查重与整理助手.exe','dc_cli.exe')
   $benchmark = 'dc_benchmark.exe'
   if (Test-Path -LiteralPath (Join-Path $BuildDir "Release\$benchmark") -PathType Leaf) { $binaries += $benchmark }
   foreach ($binary in $binaries) {

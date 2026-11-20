@@ -8,7 +8,7 @@ $receipt = Join-Path $BuildDir 'diskcurator-windows-validation.txt'
 if (Test-Path -LiteralPath $receipt) { Remove-Item -LiteralPath $receipt -Force }
 & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'check_source_layout.ps1')
 if ($LASTEXITCODE -ne 0) { throw 'Source/parser preflight failed' }
-$exe = Join-Path $BuildDir 'Release\DiskCurator.exe'
+$exe = Join-Path $BuildDir 'Release\文件查重与整理助手.exe'
 $cli = Join-Path $BuildDir 'Release\dc_cli.exe'
 $testLog = Join-Path $BuildDir 'Testing\Temporary\LastTest.log'
 foreach ($f in @($exe,$cli)) { if (-not (Test-Path -LiteralPath $f -PathType Leaf)) { throw "Cannot seal validation receipt; missing $f" } }
@@ -53,7 +53,7 @@ foreach ($file in $deliverables) {
 $logHash=(Get-FileHash -LiteralPath $testLog -Algorithm SHA256).Hash.ToLowerInvariant()
 $receipt=Join-Path $BuildDir 'diskcurator-windows-validation.txt'
 $body = @(
-  "DiskCurator-Native-$version / automated Windows validation receipt",
+  "File Dedup Organizer $version / automated Windows validation receipt",
   ('UTC: '+[DateTime]::UtcNow.ToString('o')),
   ('OS: '+[Environment]::OSVersion.VersionString),
   'Build: Visual Studio 2022 Win64 Release',

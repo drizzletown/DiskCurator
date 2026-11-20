@@ -32,6 +32,8 @@ namespace fs=std::filesystem;
 
 namespace {
 constexpr UINT WMU_DONE=WM_APP+43;
+constexpr wchar_t kProductName[]=L"文件查重与整理助手";
+constexpr int kCompactTitleWidth=184;
 enum Id { ID_ROOT=100,ID_BROWSE,ID_SCAN,ID_STOP,ID_COMPARE,ID_RENAME,ID_ARCHIVE,ID_QUARANTINE,
           ID_APPLY,ID_UNDO,ID_EXPORT,ID_PHOTO,ID_LIST=114,ID_SEARCH,ID_RELATIONS,ID_MERGE,ID_SUGGEST,ID_STRUCTURE,ID_MAP_EDIT,ID_STRUCTURE_PREVIEW,ID_STRUCTURE_REJECT,ID_RETIRE=125, ID_SCAN_SCOPE=230, ID_LENS_PICK=231, ID_BASIC_ACTIONS=240, ID_THEME_ACTIONS, ID_SMART_ACTIONS, ID_SCAN_PROGRESS, ID_PROGRESS_STAGE, ID_SELECTION_CONTEXT, ID_ALL_RESULTS, ID_PROGRESS_METRICS, ID_PROGRESS_PATH, ID_SHOW_PREVIEW, ID_SHOW_HISTORY,ID_STATUS,
           ID_CLEAR_FILTER=252,ID_WELCOME_TITLE,ID_WELCOME_DETAIL,ID_CHOOSE_FOLDER,ID_CHOOSE_DRIVES,ID_DUPLICATE_VIEW };
@@ -49,7 +51,7 @@ void set_font(HWND h,HFONT f){SendMessageW(h,WM_SETFONT,(WPARAM)f,TRUE);}
 HWND create(HWND parent,const wchar_t* cls,const wchar_t* label,DWORD style,int id,DWORD ex=0){return CreateWindowExW(ex,cls,label,style|WS_CHILD|WS_VISIBLE,0,0,40,24,parent,(HMENU)(INT_PTR)id,GetModuleHandleW(nullptr),nullptr);}
 void move(HWND h,int x,int y,int w,int height){MoveWindow(h,x,y,std::max(1,w),std::max(1,height),TRUE);}
 std::wstring bytes(dc::U64 n){return wutf8(dc::human(n));}
-void alert(HWND owner,const std::wstring& message,UINT style=MB_ICONINFORMATION){MessageBoxW(owner,message.c_str(),L"DiskCurator",style|MB_OK);}
+void alert(HWND owner,const std::wstring& message,UINT style=MB_ICONINFORMATION){MessageBoxW(owner,message.c_str(),kProductName,style|MB_OK);}
 std::wstring fmt(const fs::path& p){if(p.empty())return L".";return p.generic_wstring();}
 // A volume selection is a frozen input contract, not a request to scan all
 // currently visible drives. Volume identity is checked before and after IO.
@@ -159,7 +161,7 @@ void layout_prompt(Prompt* p){
 }
 LRESULT CALLBACK prompt_proc(HWND h,UINT msg,WPARAM w,LPARAM l){
     auto* p=reinterpret_cast<Prompt*>(GetWindowLongPtrW(h,GWLP_USERDATA));
-    if(msg==WM_NCCREATE){auto cs=reinterpret_cast<CREATESTRUCTW*>(l);p=static_cast<Prompt*>(cs->lpCreateParams);SetWindowLongPtrW(h,GWLP_USERDATA,(LONG_PTR)p);p->window=h;return TRUE;}
+    if(msg==WM_NCCREATE){auto cs=reinterpret_cast<CREATESTRUCTW*>(l);p=static_cast<Prompt*>(cs->lpCreateParams);SetWindowLongPtrW(h,GWLP_USERDATA,(LONG_PTR)p);p->window=h;return DefWindowProcW(h,msg,w,l);}
     if(!p)return DefWindowProcW(h,msg,w,l);
     if(msg==WM_CREATE){
         for(size_t i=0;i<p->fields.size();++i){
@@ -761,7 +763,7 @@ struct App {
      const int right=W-margin, width=W-2*margin, gap=8;
      const int scope_width=W<980?126:158;
      const bool ready=has_scan||full_overview();
-     const int scope_x=margin+(W<980?148:169);
+     const int scope_x=margin+kCompactTitleWidth+gap;
      const int root_x=scope_x+scope_width+gap;
      const int action_width=busy?(task_cancelable?72:0):(ready?100:0);
      const int browse_x=right-(action_width?action_width+gap:0)-84;
@@ -826,8 +828,8 @@ struct App {
      RECT rc{};GetClientRect(hwnd,&rc);const int W=rc.right,H=rc.bottom;
      const int margin=W<980?14:24;
      solid(dc,rc,kPage);solid(dc,RECT{0,0,W,58},kNavy);
-     label_at(dc,display_font,L"DiskCurator",margin,12,190,38,RGB(248,250,252));
-     if(!scope_controls_open)label_at(dc,font,L"磁盘文件整理",margin+164,16,190,31,RGB(196,215,231));
+     label_at(dc,scope_controls_open?bold_font:display_font,kProductName,margin,10,
+              scope_controls_open?kCompactTitleWidth:W-2*margin,38,RGB(248,250,252));
      if(has_scan||full_overview())solid(dc,RECT{margin,H-39,W-margin,H-38},RGB(205,216,227));
  }
  void change_view(int n,bool reset_view=false){
@@ -1366,12 +1368,12 @@ struct App {
  void run_scan(){if(scan_scope==0){
        if(selected_drives.empty()){choose_drives();if(selected_drives.empty())return;}
        for(const auto& drive:selected_drives)if(!same_drive(drive)){alert(hwnd,L"已选磁盘身份变化或已断开，请重新选择磁盘。",MB_ICONWARNING);return;}
-       if(has_pending&&MessageBoxW(hwnd,L"重新扫描将清除当前操作预览。继续吗？",L"DiskCurator",MB_YESNO|MB_ICONQUESTION)!=IDYES)return;
+       if(has_pending&&MessageBoxW(hwnd,L"重新扫描将清除当前操作预览。继续吗？",kProductName,MB_YESNO|MB_ICONQUESTION)!=IDYES)return;
        start(Task::ScanAll);return;
      }
      auto p=get_text(root_box);if(p.empty()){browse();p=get_text(root_box);}if(p.empty())return;
      std::error_code ec;auto abs=fs::absolute(fs::path(p),ec);if(ec||!fs::is_directory(abs,ec)){alert(hwnd,L"选择的目录不存在，或无法访问。",MB_ICONWARNING);return;}
-     if(has_pending&&MessageBoxW(hwnd,L"重新扫描将清除当前操作预览。继续吗？",L"DiskCurator",MB_YESNO|MB_ICONQUESTION)!=IDYES)return;
+     if(has_pending&&MessageBoxW(hwnd,L"重新扫描将清除当前操作预览。继续吗？",kProductName,MB_YESNO|MB_ICONQUESTION)!=IDYES)return;
      root=abs.lexically_normal();start(Task::Scan);
  }
  static std::wstring history_state(const std::string& state){
@@ -1761,7 +1763,7 @@ struct App {
      photo_distance=std::stoi(fields[0].value);start(Task::Photo);
  }
  void do_relations(){if(!need_scan())return;start(Task::Relations);}
- void export_csv(){if(!has_scan&&!full_overview())return;wchar_t filename[MAX_PATH]=L"DiskCurator-report.csv";
+ void export_csv(){if(!has_scan&&!full_overview())return;wchar_t filename[MAX_PATH]=L"文件整理报告.csv";
      OPENFILENAMEW of{};of.lStructSize=sizeof(of);of.hwndOwner=hwnd;of.lpstrFilter=L"CSV 文件 (*.csv)\0*.csv\0所有文件\0*.*\0";of.lpstrFile=filename;of.nMaxFile=MAX_PATH;of.Flags=OFN_OVERWRITEPROMPT|OFN_PATHMUSTEXIST;of.lpstrDefExt=L"csv";
      if(!GetSaveFileNameW(&of))return;
      std::ofstream out(fs::path(filename),std::ios::binary);if(!out){alert(hwnd,L"无法写入 CSV 文件。",MB_ICONWARNING);return;}
@@ -1945,7 +1947,7 @@ struct App {
      load_retention();
      font=CreateFontW(-16,0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH,L"Microsoft YaHei UI");
      bold_font=CreateFontW(-18,0,0,0,FW_SEMIBOLD,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH,L"Microsoft YaHei UI");
-     display_font=CreateFontW(-25,0,0,0,FW_SEMIBOLD,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH,L"Segoe UI");
+     display_font=CreateFontW(-25,0,0,0,FW_SEMIBOLD,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH,L"Microsoft YaHei UI");
      small_font=CreateFontW(-14,0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH,L"Microsoft YaHei UI");
      page_brush=CreateSolidBrush(kPage);
      scope_pick=create(hwnd,WC_COMBOBOXW,L"",CBS_DROPDOWNLIST|WS_TABSTOP|WS_VSCROLL,ID_SCAN_SCOPE);
@@ -1994,7 +1996,7 @@ struct App {
 
 LRESULT CALLBACK main_proc(HWND hwnd,UINT msg,WPARAM w,LPARAM l){
     auto* app=reinterpret_cast<App*>(GetWindowLongPtrW(hwnd,GWLP_USERDATA));
-    if(msg==WM_NCCREATE){auto* cs=reinterpret_cast<CREATESTRUCTW*>(l);app=static_cast<App*>(cs->lpCreateParams);SetWindowLongPtrW(hwnd,GWLP_USERDATA,(LONG_PTR)app);app->hwnd=hwnd;return TRUE;}
+    if(msg==WM_NCCREATE){auto* cs=reinterpret_cast<CREATESTRUCTW*>(l);app=static_cast<App*>(cs->lpCreateParams);SetWindowLongPtrW(hwnd,GWLP_USERDATA,(LONG_PTR)app);app->hwnd=hwnd;return DefWindowProcW(hwnd,msg,w,l);}
     if(!app)return DefWindowProcW(hwnd,msg,w,l);
     try{
         switch(msg){
@@ -2101,7 +2103,7 @@ int WINAPI wWinMain(HINSTANCE inst,HINSTANCE,LPWSTR,int show){
     RECT work_area{};SystemParametersInfoW(SPI_GETWORKAREA,0,&work_area,0);
     const int initial_width=std::clamp<int>(work_area.right-work_area.left-40,800,1360);
     const int initial_height=std::clamp<int>(work_area.bottom-work_area.top-40,580,850);
-    App app;HWND wnd=CreateWindowExW(0,wc.lpszClassName,L"DiskCurator · 扫描结果与文件整理",WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN,CW_USEDEFAULT,CW_USEDEFAULT,initial_width,initial_height,nullptr,nullptr,inst,&app);
+    App app;HWND wnd=CreateWindowExW(0,wc.lpszClassName,kProductName,WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN,CW_USEDEFAULT,CW_USEDEFAULT,initial_width,initial_height,nullptr,nullptr,inst,&app);
     if(!wnd){if(com)CoUninitialize();return 3;}
     ShowWindow(wnd,show);UpdateWindow(wnd);
     MSG m{};while(GetMessageW(&m,nullptr,0,0)>0){if(app.handle_key(m))continue;TranslateMessage(&m);DispatchMessageW(&m);}

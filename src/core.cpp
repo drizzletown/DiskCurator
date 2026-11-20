@@ -1143,7 +1143,7 @@ struct RootMutationLock {
         if(!handle)throw std::runtime_error("Cannot acquire root operation mutex");
         auto state=WaitForSingleObject(handle,0);
         if(state!=WAIT_OBJECT_0&&state!=WAIT_ABANDONED){CloseHandle(handle);handle=nullptr;
-            throw std::runtime_error("Another DiskCurator instance is changing this directory");}
+            throw std::runtime_error("Another File Dedup Organizer instance is changing this directory");}
         owns=true;
     }
     ~RootMutationLock(){if(owns)ReleaseMutex(handle);if(handle)CloseHandle(handle);}
@@ -1334,7 +1334,7 @@ static void verify_workspace(const fs::path& root){
     // byte spellings so existing workspaces (and their journals/quarantine) are
     // usable without destructive migration. Reject any trailing payload.
     std::ifstream in(owner,std::ios::binary);
-    if(!in)throw std::runtime_error("Cannot read DiskCurator workspace marker");
+    if(!in)throw std::runtime_error("Cannot read the workspace owner marker");
     std::array<char,64> marker_bytes{};
     in.read(marker_bytes.data(),static_cast<std::streamsize>(marker_bytes.size()));
     const auto count=static_cast<size_t>(in.gcount());
@@ -1342,7 +1342,7 @@ static void verify_workspace(const fs::path& root){
     if(in.bad()||count==marker_bytes.size()||
        (marker!="DiskCurator Native workspace v1\n" &&
         marker!="DiskCurator Native workspace v1\r\n"))
-        throw std::runtime_error("Invalid DiskCurator workspace marker");
+        throw std::runtime_error("Invalid workspace owner marker");
     for(auto name:{L"journal",L"stage",L"quarantine"})
         (void)existing_ordinary(root/SYS/name,true);
 }
@@ -1947,7 +1947,7 @@ StructurePlan plan_structure(const Inventory& inv,const StructureSuggestion& pro
         bool known_output=false;
         for(const auto& h:history(inv.root))
             if(h.label==marker&&(h.status=="DONE"||h.status=="PARTIAL"))known_output=true;
-        if(!known_output)throw std::runtime_error("Proposed output folder already contains user data and was not created by DiskCurator; choose a new output folder");
+        if(!known_output)throw std::runtime_error("Proposed output folder already contains user data and was not created by File Dedup Organizer; choose a new output folder");
     }
     // File-level explicit mappings take precedence over heuristic category rules.
     // Targets are relative to output_base, never absolute or outside the selected root.

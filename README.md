@@ -1,10 +1,10 @@
-# DiskCurator · Windows 磁盘文件整理工具
+# 文件查重与整理助手
 
-准备换电脑时，旧硬盘上往往还躺着好几份“桌面备份”。改过名字的照片可能是同一张，两个都叫“最终版”的报价单却可能写着不同的价格。DiskCurator 帮你按文件内容找副本、对照两份备份的差异，再决定哪些该留下、哪些该归到一起。
+找出内容相同的文件，对比两份备份的差异，按类型或日期归档。换电脑时，即使同一张照片在两份“桌面备份”里改过名字，也能找到它的副本。两个都叫“最终版”的报价单，则可以按内容核对后再决定保留哪一份。
 
 适用于 **Windows 10 / 11 x64**，解压即可运行。扫描和核对都在本机完成，整理前可以逐项查看文件会从哪里移到哪里。
 
-**[下载 Windows 便携版 v1.0.5](https://github.com/drizzletown/DiskCurator/releases/download/v1.0.5/DiskCurator-Native-v1.0.5-Win64.zip)** · [所有版本与校验文件](https://github.com/drizzletown/DiskCurator/releases)
+**[下载 Windows 便携版 v1.0.6](https://github.com/drizzletown/DiskCurator/releases/download/v1.0.6/File-Dedup-Organizer-v1.0.6-Win64.zip)** · [所有版本与校验文件](https://github.com/drizzletown/DiskCurator/releases)
 
 ## 什么时候用得上？
 
@@ -19,7 +19,7 @@
 
 ## 第一次用，先找一组重复文件
 
-1. 解压便携包，双击 `DiskCurator.exe`。点 **选择文件夹…**，选一个熟悉的备份目录，再点 **开始扫描**。
+1. 解压便携包，双击 `文件查重与整理助手.exe`。点 **选择文件夹…**，选一个熟悉的备份目录，再点 **开始扫描**。
 2. 扫描结束后点 **重复文件**，查看每组文件的位置。双击文件可在资源管理器中定位并选中它。按 `Ctrl+F` 可按名称或路径筛选，按 `Esc` 恢复列表。
 3. 想进一步确认内容时，点 **核验副本**。核验完成后，点 **返回文件** 回到文件列表。只想查重，到这里就可以结束。需要整理时，再选择操作，在预览中核对来源、目标和数量后点 **确认执行…**。
 
@@ -29,4 +29,4 @@
 
 命令行用户可运行 `dc_cli --help` 查看命令。从源码构建需要 Visual Studio 2022 C++ 桌面开发工具、Windows SDK 和 CMake 3.21 或更新版本。运行 `scripts\build_windows.bat` 后，便携包和 SHA-256 校验文件位于 `dist`。
 
-[版本改动](RELEASE-v1.0.5.md) · [Windows 验收记录](RELEASE-ACCEPTANCE.md) · [测试指南](TESTING.md) · [产品需求](REQUIREMENTS.md) · [总体架构](ARCHITECTURE.md)
+[版本改动](RELEASE-v1.0.6.md) · [Windows 验收记录](RELEASE-ACCEPTANCE.md) · [测试指南](TESTING.md) · [产品需求](REQUIREMENTS.md) · [总体架构](ARCHITECTURE.md)

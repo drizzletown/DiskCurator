@@ -1,4 +1,4 @@
-﻿param([string]$ExePath = 'build-win\Release\DiskCurator.exe', [switch]$CacheUnavailable, [string]$ScreenshotDir)
+﻿param([string]$ExePath = 'build-win\Release\文件查重与整理助手.exe', [switch]$CacheUnavailable, [string]$ScreenshotDir)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $project = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
@@ -261,6 +261,7 @@ try {
         Start-Sleep -Milliseconds 50
     }
     if ($script:window -eq [IntPtr]::Zero) { throw 'Main GUI window missing' }
+    if ((Get-ControlText $script:window) -cne '文件查重与整理助手') { throw 'Main window did not display the product name' }
     foreach ($id in @(112,123,200,201,202,203,204,205,206)) {
         if ([DiskCuratorGuiSmoke]::GetDlgItem($script:window,$id) -ne [IntPtr]::Zero) { throw "Removed sidebar/control still exists: $id" }
     }
@@ -284,7 +285,7 @@ try {
     # Follow both visible entry points. Cancel both pickers; only the synthetic path below is submitted.
     $driveEntry=[DiskCuratorGuiSmoke]::GetDlgItem($script:window,256)
     [void][DiskCuratorGuiSmoke]::PostMessage($driveEntry,0x00F5,[IntPtr]::Zero,[IntPtr]::Zero)
-    $driveDialog=Wait-Dialog 'DCFormNative' 'drive selection' '' @(1,2,2000)
+    $driveDialog=Wait-Dialog 'DCFormNative' 'drive selection' '选择本次需要扫描的磁盘（可以多选）' @(1,2,2000)
     $driveCount=0
     while ($true) {
         $box=[DiskCuratorGuiSmoke]::GetDlgItem($driveDialog,2000+$driveCount)
@@ -380,7 +381,7 @@ try {
     Send-Action 5107
     [void][DiskCuratorGuiSmoke]::PostMessage($script:list,0x0100,[IntPtr]0x71,[IntPtr]::Zero) # F2 down
     [void][DiskCuratorGuiSmoke]::PostMessage($script:list,0x0101,[IntPtr]0x71,[IntPtr]::Zero)
-    $rename=Wait-Dialog 'DCFormNative' 'single file rename' '' @(1,2,2000)
+    $rename=Wait-Dialog 'DCFormNative' 'single file rename' '重命名文件' @(1,2,2000)
     $newName=[DiskCuratorGuiSmoke]::GetDlgItem($rename,2000)
     if ((Get-ControlText $newName) -cne '甲.txt' -or [DiskCuratorGuiSmoke]::GetDlgItem($rename,2001) -ne [IntPtr]::Zero) { throw 'Single-file rename should open one prefilled name field' }
     Set-ControlText $newName '已更名.txt'
@@ -400,7 +401,7 @@ try {
     if ((Test-Path -LiteralPath (Join-Path $folderA '已更名.txt')) -or -not (Test-Path -LiteralPath (Join-Path $folderA '甲.txt'))) { throw 'Declining confirmation changed the source file' }
     Set-Lens 0;Wait-Rows 3 'back to files after declined preview'
     Send-Action 106
-    $archiveDialog=Wait-Dialog 'DCFormNative' 'archive options' '' @(1,2,2000)
+    $archiveDialog=Wait-Dialog 'DCFormNative' 'archive options' '归档当前目录的文件' @(1,2,2000)
     $mode=[DiskCuratorGuiSmoke]::GetDlgItem($archiveDialog,2000)
     if ([DiskCuratorGuiSmoke]::SendMessage($mode,0x146,[IntPtr]::Zero,[IntPtr]::Zero).ToInt32() -ne 2 -or
         [DiskCuratorGuiSmoke]::SendMessage($mode,0x147,[IntPtr]::Zero,[IntPtr]::Zero).ToInt32() -ne 0) { throw 'Archive options must provide two choices with type selected' }
@@ -409,7 +410,7 @@ try {
     if ((Get-ControlText $mode) -notlike '*年月*') { throw 'Date archive choice lacks a readable label' }
     Close-TestDialog $archiveDialog
     Send-Action 5106
-    $policyDialog=Wait-Dialog 'DCFormNative' 'retention settings' '' @(1,2,2000)
+    $policyDialog=Wait-Dialog 'DCFormNative' 'retention settings' '副本保留与内容核验设置' @(1,2,2000)
     $number=[DiskCuratorGuiSmoke]::GetDlgItem($policyDialog,2000)
     Set-ControlText $number '3abc'
     [void][DiskCuratorGuiSmoke]::SendMessage($policyDialog,0x111,[IntPtr]1,[IntPtr]::Zero)

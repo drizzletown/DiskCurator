@@ -18,6 +18,6 @@ if errorlevel 1 exit /b 5
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package_release.ps1
 if errorlevel 1 exit /b 8
 echo.
-echo Built: build-win\Release\DiskCurator.exe
+echo Build complete. Start the GUI from the portable ZIP.
 echo Release ZIP: see dist\ for the validated ZIP and SHA-256 checksum
 endlocal
