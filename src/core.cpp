@@ -1143,7 +1143,7 @@ struct RootMutationLock {
         if(!handle)throw std::runtime_error("Cannot acquire root operation mutex");
         auto state=WaitForSingleObject(handle,0);
         if(state!=WAIT_OBJECT_0&&state!=WAIT_ABANDONED){CloseHandle(handle);handle=nullptr;
-            throw std::runtime_error("Another File Dedup Organizer instance is changing this directory");}
+            throw std::runtime_error("Another DiskOrganizer instance is changing this directory");}
         owns=true;
     }
     ~RootMutationLock(){if(owns)ReleaseMutex(handle);if(handle)CloseHandle(handle);}
@@ -1947,7 +1947,7 @@ StructurePlan plan_structure(const Inventory& inv,const StructureSuggestion& pro
         bool known_output=false;
         for(const auto& h:history(inv.root))
             if(h.label==marker&&(h.status=="DONE"||h.status=="PARTIAL"))known_output=true;
-        if(!known_output)throw std::runtime_error("Proposed output folder already contains user data and was not created by File Dedup Organizer; choose a new output folder");
+        if(!known_output)throw std::runtime_error("Proposed output folder already contains user data and was not created by DiskOrganizer; choose a new output folder");
     }
     // File-level explicit mappings take precedence over heuristic category rules.
     // Targets are relative to output_base, never absolute or outside the selected root.

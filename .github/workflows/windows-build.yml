@@ -24,8 +24,8 @@ jobs:
       - name: Upload Win64 portable ZIP and checksum
         uses: actions/upload-artifact@v4
         with:
-          name: File-Dedup-Organizer-Win64
+          name: DiskOrganizer-Win64
           path: |
-            dist/File-Dedup-Organizer-v*-Win64.zip
-            dist/File-Dedup-Organizer-v*-Win64.zip.sha256
+            dist/DiskOrganizer-v*-Win64.zip
+            dist/DiskOrganizer-v*-Win64.zip.sha256
           if-no-files-found: error

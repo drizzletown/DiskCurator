@@ -14,9 +14,9 @@ BEGIN
   BLOCK "080404b0"
   BEGIN
    VALUE "CompanyName", "drizzletown\0"
-   VALUE "FileDescription", "文件查重与整理助手\0"
-   VALUE "ProductName", "文件查重与整理助手\0"
-   VALUE "OriginalFilename", "文件查重与整理助手.exe\0"
+   VALUE "FileDescription", "磁盘文件整理助手\0"
+   VALUE "ProductName", "磁盘文件整理助手\0"
+   VALUE "OriginalFilename", "磁盘文件整理助手.exe\0"
    VALUE "FileVersion", "@PROJECT_VERSION@\0"
   END
  END

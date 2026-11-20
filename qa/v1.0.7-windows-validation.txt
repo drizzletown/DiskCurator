@@ -1,0 +1,57 @@
+PowerShell parser check passed: 7 scripts.
+PowerShell encoding check passed: non-ASCII scripts have valid UTF-8 BOM.
+DiskOrganizer source distribution complete: 51 required files.
+磁盘文件整理助手.exe contains the correct product name, Common Controls v6, longPathAware=true and dpiAware=true.
+Test project <USERPROFILE>/Documents/DiskCurator/DiskCurator-v2.6/DiskCurator-Native/build-release
+      Start  1: core
+ 1/16 Test  #1: core ...................................   Passed    1.10 sec
+      Start  2: recovery_fault_injection
+ 2/16 Test  #2: recovery_fault_injection ...............   Passed    0.94 sec
+      Start  3: directory_stress
+ 3/16 Test  #3: directory_stress .......................   Passed   27.52 sec
+      Start  4: merge_and_two_copy_retention
+ 4/16 Test  #4: merge_and_two_copy_retention ...........   Passed    0.82 sec
+      Start  5: read_only_merge_recommendations
+ 5/16 Test  #5: read_only_merge_recommendations ........   Passed    0.87 sec
+      Start  6: integrated_workspace_workflow
+ 6/16 Test  #6: integrated_workspace_workflow ..........   Passed    1.02 sec
+      Start  7: suggested_directory_structure
+ 7/16 Test  #7: suggested_directory_structure ..........   Passed    1.18 sec
+      Start  8: manual_foundation_and_directory_pair
+ 8/16 Test  #8: manual_foundation_and_directory_pair ...   Passed    0.78 sec
+      Start  9: complete_sha256_and_retention_policy
+ 9/16 Test  #9: complete_sha256_and_retention_policy ...   Passed    1.07 sec
+      Start 10: scan_observation_perspectives
+10/16 Test #10: scan_observation_perspectives ..........   Passed    0.39 sec
+      Start 11: full_disk_and_manual_scope
+11/16 Test #11: full_disk_and_manual_scope .............   Passed    0.41 sec
+      Start 12: scan_progress_and_streaming_hash
+12/16 Test #12: scan_progress_and_streaming_hash .......   Passed    0.74 sec
+      Start 13: scan_hash_action_policy
+13/16 Test #13: scan_hash_action_policy ................   Passed    0.98 sec
+      Start 14: scan_rollup_and_verification_cancel
+14/16 Test #14: scan_rollup_and_verification_cancel ....   Passed    0.39 sec
+      Start 15: selected_directory_pair_scope
+15/16 Test #15: selected_directory_pair_scope ..........   Passed    0.57 sec
+      Start 16: release_assertions_active
+16/16 Test #16: release_assertions_active ..............   Passed    0.26 sec
+
+100% tests passed, 0 tests failed out of 16
+
+Total Test time (real) =  39.08 sec
+PASS Windows smoke: Chinese paths, exact files/folders, rename/undo, two-copy quarantine/undo, additive merge, structure build, scoped two-external-keeper retirement, WIC dHash, date archive/undo
+PASS Windows policy smoke: SHA256 all, keep 1/3/0-consent, fast-mode dry run
+PASS guided forms: archive mode has readable choices and retention errors keep the original input.
+PASS fixture transaction: confirmed copy preserves sources, opens history, keeps snapshot stale and disables further operations.
+PASS Windows GUI: scope, result lenses, filter identity, scan progress, exact analysis, read-only preview and invalidation on changed root.
+PASS guided forms: archive mode has readable choices and retention errors keep the original input.
+PASS cache failure: content remains usable; warning persists through exact verification, preview and perspective changes.
+PASS Windows GUI: scope, result lenses, filter identity, scan progress, exact analysis, read-only preview and invalidation on changed root.
+phase	ms	process_read_bytes	peak_working_set_bytes	result
+scan_enumeration	3	0	4268032	files=17; attempted=0; inventory_bytes=104352; content_read_bytes=0; errors=0
+scan_sha256	27	104352	5570560	files=17; attempted=17; inventory_bytes=104352; content_read_bytes=104352; errors=0
+scan_save_index	5	0	5664768	files=17; attempted=17; inventory_bytes=104352; content_read_bytes=104352; errors=0
+scan_hash_groups	0	0	5664768	files=17; attempted=17; inventory_bytes=104352; content_read_bytes=104352; errors=0
+scan_full_sha256_total	37	104352	5664768	files=17; attempted=17; inventory_bytes=104352; content_read_bytes=104352; errors=0; hash_backend=Windows CNG SHA256
+build_observations	0	0	5664768	files=17; directories=1; incomplete_folders=0; hash_candidate_groups=0
+Recorded Windows auto-validation receipt: <USERPROFILE>\Documents\DiskCurator\DiskCurator-v2.6\DiskCurator-Native\build-release\diskcurator-windows-validation.txt

@@ -1,4 +1,4 @@
-﻿param([string]$ExePath = 'build-win\Release\文件查重与整理助手.exe', [switch]$CacheUnavailable, [string]$ScreenshotDir)
+﻿param([string]$ExePath = 'build-win\Release\磁盘文件整理助手.exe', [switch]$CacheUnavailable, [string]$ScreenshotDir)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $project = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
@@ -261,7 +261,7 @@ try {
         Start-Sleep -Milliseconds 50
     }
     if ($script:window -eq [IntPtr]::Zero) { throw 'Main GUI window missing' }
-    if ((Get-ControlText $script:window) -cne '文件查重与整理助手') { throw 'Main window did not display the product name' }
+    if ((Get-ControlText $script:window) -cne '磁盘文件整理助手') { throw 'Main window did not display the product name' }
     foreach ($id in @(112,123,200,201,202,203,204,205,206)) {
         if ([DiskCuratorGuiSmoke]::GetDlgItem($script:window,$id) -ne [IntPtr]::Zero) { throw "Removed sidebar/control still exists: $id" }
     }

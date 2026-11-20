@@ -1,6 +1,6 @@
 # 架构与状态约束
 
-文件查重与整理助手采用 C++17。Windows GUI 使用 Win32 Common Controls，CLI、GUI 与诊断工具链接同一个核心库。以下路径相对工程根目录。
+磁盘文件整理助手采用 C++17。Windows GUI 使用 Win32 Common Controls，CLI、GUI 与诊断工具链接同一个核心库。以下路径相对工程根目录。
 
 | 环节 | 实现 | 传给下一步的数据 |
 |---|---|---|

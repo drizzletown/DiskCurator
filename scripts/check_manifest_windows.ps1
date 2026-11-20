@@ -4,7 +4,7 @@ Set-StrictMode -Version Latest
 
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 if (-not [IO.Path]::IsPathRooted($BuildDir)) { $BuildDir = Join-Path $root $BuildDir }
-$productName = '文件查重与整理助手'
+$productName = '磁盘文件整理助手'
 $exe = Join-Path $BuildDir "Release\$productName.exe"
 if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
   throw "Win32 GUI executable not found: $exe"
@@ -45,7 +45,7 @@ try {
   $identity = $xml.SelectSingleNode("/*[local-name()='assembly']/*[local-name()='assemblyIdentity']")
   if ($null -eq $identity -or $identity.GetAttribute('version') -ne ($version+'.0')) { throw 'Manifest version mismatch' }
   $description = $xml.SelectSingleNode("/*[local-name()='assembly']/*[local-name()='description']")
-  if ($null -eq $description -or $description.InnerText -cne 'File Dedup Organizer') { throw 'Manifest product description mismatch' }
+  if ($null -eq $description -or $description.InnerText -cne 'DiskOrganizer') { throw 'Manifest product description mismatch' }
   $controls = $xml.SelectSingleNode("//*[local-name()='dependentAssembly']/*[local-name()='assemblyIdentity' and @name='Microsoft.Windows.Common-Controls']")
   if ($null -eq $controls -or $controls.GetAttribute('version') -ne '6.0.0.0') { throw 'Native common controls v6 manifest dependency missing' }
   foreach ($setting in @('longPathAware', 'dpiAware')) {
