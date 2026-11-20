@@ -258,8 +258,8 @@ Linux、GCC 14.2、`-std=c++17 -O2 -pthread`、可移植 SHA、操作系统缓�
 | S6 | `tools/perf_benchmark.cpp` | 阶段诊断及逻辑 I/O 指标 |
 | E1 | `qa/observation-scaling.json` | 50 万文件纯内存对照原始数据 |
 | E2 | `qa/hash-scan-linux-microbenchmark.json` | 小文件与 64 MiB 文件微基准原始数据 |
-| E3 | `RELEASE-ACCEPTANCE.md`、`qa/v1.0.1-*` | 本版实际构建与回归结果、未执行 Windows 项目 |
-| H1 | `docs/design-v2.5/02-scan-performance.md` 及 v1.0.0 hotfix1 源码 | 旧路径额外读取的历史审计范围 |
+| E3 | `qa/v1.0.1-*` | 1.0.1 的构建与回归记录。当前发布版另见[验收记录](../../RELEASE-ACCEPTANCE.md)。 |
+| H1 | v2.5 扫描性能审计及 v1.0.0 hotfix1 源码 | 旧扫描流程的额外读取范围 |
 
 接口说明可参考 Microsoft Learn 的 `BCryptOpenAlgorithmProvider`、`Creating a Hash with CNG` 和 `CreateFileW` 官方文档；当前性能结论以本章列出的实际数据为准。
 
