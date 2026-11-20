@@ -51,6 +51,12 @@ int main(){
         assert(execute_plan(root,none).success);assert(undo_latest(root).success);
         auto automatic=plan_clean_hashed_duplicates(observed,one);
         assert(automatic.moves.size()==4); // three copies + one old/outside candidate
+        assert(automatic.cleanup_summary && automatic.cleanup_summary->duplicate_groups==2);
+        assert(automatic.cleanup_summary->planned_bytes==38);
+        const auto default_cleanup=plan_clean_hashed_duplicates(observed,RetentionPolicy{});
+        assert(default_cleanup.cleanup_summary->groups_at_or_below_minimum==1);
+        assert(default_cleanup.moves.size()==2 && default_cleanup.cleanup_summary->planned_bytes==18);
+        assert(!manual.cleanup_summary);
         assert_observation_only(observed);
         auto retirement=plan_retire_hashed_directory(observed,"old",one);
         assert(retirement.quarantine.moves.size()==1&&retirement.blocked.empty());

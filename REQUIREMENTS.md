@@ -1,4 +1,4 @@
-# 磁盘文件整理助手 1.0.8 产品需求与验收矩阵
+# 磁盘文件整理助手 1.0.9 产品需求与验收矩阵
 
 磁盘文件整理助手供用户核对、归档本地目录和移动硬盘上的文件。用户先指定磁盘或目录，读取内容并查看结果，再决定保留哪些副本、如何归档或合并目录。图形界面和命令行共用文件判定、计划和事务执行器。交付目标为 Windows 10/11 x64。
 
@@ -19,7 +19,7 @@
 | OBS-01～04、06～08、UI-03 | 容量为逻辑字节。文件候选用大小与 SHA-256 分组并按路径计入自身。目录树候选包含空目录。总览候选可跨选定根，精确副本标注实际核验根。内容不完整时显示未知，隔离前的保留者另按计划策略确定。 | `scan_observation_perspectives`、`scan_hash_action_policy`。真实双盘标签切换及 CSV 核对见测试指南。 |
 | P-04～06、UI-04～06、OBS-05 | 选择 A/B 后报告同路径相同与冲突、两侧独有、共有内容出现次数、较小侧覆盖率和多重集 Jaccard。空分母显示未定义。已有完整根库存时，后续核验只读取 A/B 子树。CLI 每次启动分析仍需先扫描传入的根。 | `manual_foundation_and_directory_pair`、`selected_directory_pair_scope`、`smoke_windows.ps1` |
 | UI-05、OBS-08 | 筛选或排序后选择仍须对应原根、路径与对象类型。文件/目录视角先匹配库存后截取。全选只选显示行，CSV 导出当前显示行并附范围、状态。主要大列表达到 5000 行上限时提示截取。 | `smoke_gui_windows.ps1` 验证筛选和选择；导出与截取端到端按测试指南人工核查。 |
-| P-07、ACT-01～04、07 | 单文件或目录规则重命名、所选重复文件隔离、当前根副本整理和指定目录清退均先生成计划。预览列出源、目标及适用策略。清退的合格保留者须在整个待清退目录外。策略可设 K=0～32，默认保留两个不同文件对象并复核内容字节。K=0 要求单独同意，快速模式依据扫描哈希及元数据复核。 | `complete_sha256_and_retention_policy`、`scan_hash_action_policy`、`smoke_policy_windows.ps1`、`core` |
+| P-07、ACT-01～04、07 | 单文件或目录规则重命名、所选重复文件隔离、当前根副本整理和指定目录清退均先生成计划。预览列出源、目标及适用策略。当前根自动隔离还分项统计保留组、缺少独立保留者的组和拟移动容量。清退的合格保留者须在整个待清退目录外。策略可设 K=0～32，默认保留两个不同文件对象并复核内容字节。K=0 要求单独同意，快速模式依据扫描哈希及元数据复核。 | `complete_sha256_and_retention_policy`、`scan_hash_action_policy`、`smoke_policy_windows.ps1`、`core` |
 | ACT-05～07、UI-07 | 融合限同根互不重叠的两个子目录，保留源、空目录和同名异内容版本。类型/日期归档、相似照片、目录关系、融合建议和结构映射按需发起。用户可拒绝建议或编辑映射；计划更改须重新预览。WIC 感知哈希提供人工核对的照片候选。 | `merge_and_two_copy_retention`、`suggested_directory_structure`、`read_only_merge_recommendations`、`integrated_workspace_workflow`、`smoke_windows.ps1` |
 | P-08、UI-08、SCAN-05～07、PERF-01～05 | 长任务显示阶段、当前路径、文件和字节数。总量未知时用活动进度，估时注明当前盘及阶段。支持取消的任务等工作线程实际退出后才结束。缓存保存失败时仍能使用已读取的结果并持续看到独立告警。 | `scan_progress_and_streaming_hash`、`scan_rollup_and_verification_cancel`、`directory_stress`、`smoke_gui_windows.ps1 -CacheUnavailable` |
 | P-09、UI-09、ACT-08～10、PERF-06 | 文件修改、部分提交、执行失败或异常返回后，GUI 显示结果过期及历史。继续分析或变更前需显式重扫。移动类事务按日志恢复路径；复制类事务保留已提交的文件，恢复结果区分成功、部分完成及需人工处理。 | `recovery_fault_injection`、`merge_and_two_copy_retention`、`integrated_workspace_workflow`；GUI 写后状态核查见测试指南。 |

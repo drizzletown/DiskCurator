@@ -235,7 +235,21 @@ static int exec(const std::vector<std::string>& input) {
  else if(cmd=="similar"){auto r=similar_photos(inv,threshold);std::cout<<"Decoded="<<r.photos.size()<<" SimilarPairs="<<r.pairs.size()<<" ImageErrors="<<r.errors.size()<<"\n";
   for(auto&p:r.pairs)std::cout<<p.distance<<" "<<utf8(p.a)<<" ~ "<<utf8(p.b)<<"\n";}
  else {Plan p;
-   if(cmd=="clean")p=plan_clean_duplicates(inv,d,retention);
+   if(cmd=="clean"){
+      p=plan_clean_duplicates(inv,d,retention);
+      const auto& summary=p.cleanup_summary.value();
+      std::cout<<"CLEAN_PREVIEW groups="<<summary.duplicate_groups<<" min_active="<<retention.min_active_copies
+               <<" groups_at_or_below_minimum="<<summary.groups_at_or_below_minimum
+               <<" groups_without_independent_keepers="<<summary.groups_without_independent_keepers
+               <<" planned_files="<<p.moves.size()<<" planned_bytes="<<summary.planned_bytes<<"\n";
+      if(!summary.duplicate_groups)std::cout<<"No duplicate groups found.\n";
+      if(summary.groups_at_or_below_minimum)
+          std::cout<<"Kept unchanged: "<<summary.groups_at_or_below_minimum<<" group(s) have "
+                   <<retention.min_active_copies<<" or fewer file paths under the current retention policy.\n";
+      if(summary.groups_without_independent_keepers)
+          std::cout<<"Kept unchanged: "<<summary.groups_without_independent_keepers<<" group(s) contain too few "
+                      "independent files to satisfy the retention policy (hard links share a file).\n";
+   }
    else if(cmd=="quarantine-selected"){
       std::vector<fs::path> selected;
       for (const auto& path : operands) selected.push_back(from_utf8(path));

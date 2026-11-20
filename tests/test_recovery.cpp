@@ -44,6 +44,23 @@ struct Fixture {
 }
 int main(){
     try{
+#ifdef _WIN32
+        {
+            Fixture t("extended_root");
+            t.root=extended_path(t.root);
+            const auto source_dir=fs::path(std::wstring(110,L'a'))/std::wstring(110,L'b');
+            const auto original=source_dir/L"original.txt";
+            const auto destination=source_dir/L"renamed.txt";
+            assert((t.root/original).native().size()>260);
+            put(t.root/destination,"retained bytes");
+            t.journal("old_move",{{original,destination}},"STAGEDALL");
+            const auto log=t.root/L".DiskCurator-System"/L"journal"/L"old_move.log";
+            std::ofstream(log,std::ios::binary|std::ios::app)<<"DONE\n";
+            assert(undo_latest(t.root).success);
+            assert(get(t.root/original)=="retained bytes"&&!fs::exists(t.root/destination));
+            assert(get(log).find("UNDONE\n")!=std::string::npos);
+        }
+#endif
         {
             Fixture t("partially_staged");
             put(t.root/"photos/a.txt","A");put(t.root/"photos/b.txt","B");

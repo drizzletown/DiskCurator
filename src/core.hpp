@@ -185,7 +185,19 @@ struct RetentionPolicy {
     bool verify_bytes_before_change=true; // false trusts FULL-SCAN SHA256 + unchanged metadata
     bool allow_zero_active=false; // separately acknowledged high-risk choice
 };
-struct Plan { std::string name; std::vector<Move> moves; std::vector<std::string> warnings; RetentionPolicy retention{}; };
+struct CleanupSummary {
+    size_t duplicate_groups=0;
+    size_t groups_at_or_below_minimum=0;
+    size_t groups_without_independent_keepers=0;
+    U64 planned_bytes=0; // logical size of files to move into reversible quarantine
+};
+struct Plan {
+    std::string name;
+    std::vector<Move> moves;
+    std::vector<std::string> warnings;
+    RetentionPolicy retention{};
+    std::optional<CleanupSummary> cleanup_summary{};
+};
 struct FileRename { fs::path source, new_filename; };
 bool valid_file_name(const fs::path& name);
 struct RenameOptions { fs::path dir; std::wstring pattern=L"*"; std::wstring find,replace,prefix,suffix; int number_start=0; int digits=3; bool include_files=true, include_dirs=true; std::optional<FileRename> single_file; };

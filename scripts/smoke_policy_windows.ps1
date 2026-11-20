@@ -16,8 +16,11 @@ try {
   if ((($out -split "`n") | Where-Object { $_ -match '^[0-9a-f]{64}\s' }).Count -ne 4) {
     throw "Full SHA256 index should contain four hashes: $out"
   }
+  $atMinimum = & $exe clean $fixture --keep 4 2>&1 | Out-String
+  if ($LASTEXITCODE -ne 0 -or $atMinimum -notmatch 'CLEAN_PREVIEW groups=1 min_active=4 groups_at_or_below_minimum=1 groups_without_independent_keepers=0 planned_files=0 planned_bytes=0' -or
+      $atMinimum -notmatch 'Kept unchanged: 1 group') { throw "Missing retention explanation: $atMinimum" }
   $p3 = & $exe clean $fixture --keep 3 2>&1 | Out-String
-  if ($LASTEXITCODE -ne 0 -or $p3 -notmatch '1 moves') { throw "Keep 3 failed: $p3" }
+  if ($LASTEXITCODE -ne 0 -or $p3 -notmatch '1 moves' -or $p3 -notmatch 'planned_files=1 planned_bytes=11') { throw "Keep 3 failed: $p3" }
   $p1 = & $exe clean $fixture --keep 1 2>&1 | Out-String
   if ($LASTEXITCODE -ne 0 -or $p1 -notmatch '3 moves') { throw "Keep 1 failed: $p1" }
   $risky = & $exe quarantine-selected $fixture copies/a.bin copies/b.bin copies/c.bin copies/d.bin --keep 0 --allow-zero 2>&1 | Out-String

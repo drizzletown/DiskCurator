@@ -115,6 +115,41 @@ int main(){
   put(root/"copies"/"b.bin","changed!!!"); // not identical; time restored
   fs::last_write_time(root/"copies"/"b.bin",original_time);
   assert(!execute_plan(root,pending).success);
+  // Explain zero-move plans and distinguish keeper count from hard-link independence.
+  const auto summaries=root/"cleanup-summaries";
+  const auto preview=[&](RetentionPolicy policy=RetentionPolicy{}){
+      auto inventory=scan(summaries);
+      auto groups=deduplicate(inventory);
+      return plan_clean_duplicates(inventory,groups,policy);
+  };
+  put(summaries/"a","123");
+  const auto unique=preview();
+  assert(unique.cleanup_summary && unique.cleanup_summary->duplicate_groups==0);
+  assert(unique.moves.empty() && unique.cleanup_summary->planned_bytes==0);
+  put(summaries/"b","123");
+  const auto two=preview();
+  assert(two.moves.empty() && two.cleanup_summary->duplicate_groups==1);
+  assert(two.cleanup_summary->groups_at_or_below_minimum==1);
+  assert(two.cleanup_summary->groups_without_independent_keepers==0);
+  put(summaries/"c","123");
+  const auto three_files=preview();
+  assert(three_files.moves.size()==1 && three_files.cleanup_summary->planned_bytes==3);
+  assert(three_files.cleanup_summary->groups_at_or_below_minimum==0);
+  const auto keep_zero=preview(risk);
+  assert(keep_zero.moves.size()==3 && keep_zero.cleanup_summary->planned_bytes==9);
+  fs::create_hard_link(summaries/"a",summaries/"a-link-1",ec);
+  if(!ec){
+      fs::create_hard_link(summaries/"a",summaries/"a-link-2");
+      // Five paths, only three independent files; four keepers cannot be chosen.
+      const auto blocked=preview(RetentionPolicy{4,true});
+      assert(blocked.moves.empty() && blocked.cleanup_summary->duplicate_groups==1);
+      assert(blocked.cleanup_summary->groups_at_or_below_minimum==0);
+      assert(blocked.cleanup_summary->groups_without_independent_keepers==1);
+      assert(blocked.cleanup_summary->planned_bytes==0);
+      const auto count_paths=preview(RetentionPolicy{4,false});
+      assert(count_paths.moves.size()==1 && count_paths.cleanup_summary->planned_bytes==3);
+      assert(count_paths.cleanup_summary->groups_without_independent_keepers==0);
+  }
   fs::remove_all(root,ec);fs::remove_all(cache_root,ec);
   std::cout<<"HASH SHA256 / CONFIGURABLE RETENTION / BYTE VERIFICATION PASSED\n";
   return 0;

@@ -1381,8 +1381,12 @@ struct App {
      const auto stage=summary.title+(!has_pending?L" · 无需执行":view==9?L" · 请核对预览":L" · 预览已就绪");
      SetWindowTextW(progress_stage,stage.c_str());
      SetWindowTextW(progress_metrics,summary.changes.c_str());
-     SetWindowTextW(progress_path,view!=9?L"":has_pending?L"核对来源、目标和数量后，可选择“确认执行…”。":
-         L"本次没有要修改的项目。");
+     const wchar_t* guidance=L"";
+     if(view==9){
+         if(!summary.retention_note.empty())guidance=summary.retention_note.c_str();
+         else guidance=has_pending?L"核对来源、目标和数量后，可选择“确认执行…”。":L"本次没有要修改的项目。";
+     }
+     SetWindowTextW(progress_path,guidance);
  }
  void browse(){if(scan_scope==0){choose_drives();return;}
      IFileOpenDialog* raw=nullptr;
@@ -1500,6 +1504,7 @@ struct App {
  }
  struct PreviewSummary {
      std::wstring title, location, changes, effect;
+     std::wstring retention_note{};
  };
  PreviewSummary describe_preview() const {
      if(pending_is_structure || pending_is_merge){
@@ -1525,8 +1530,20 @@ struct App {
          else if(policy.min_active_copies>0)effect+=L"执行前逐字节核对保留副本。";
          effect+=L"隔离仍占用磁盘空间。";
          const auto where=retire?(root/retirement_summary.source_folder).wstring():root.wstring();
-         return {retire?L"清退所选目录的重复文件":L"隔离重复文件",where,
-             L"移入隔离区 "+std::to_wstring(pending.moves.size())+L" 个文件",effect};
+         auto changes=L"移入隔离区 "+std::to_wstring(pending.moves.size())+L" 个文件";
+         std::wstring note;
+         if(pending.cleanup_summary){
+             const auto& counts=*pending.cleanup_summary;
+             changes=L"同哈希候选 "+std::to_wstring(counts.duplicate_groups)+L" 组 · 拟隔离 "+
+                 std::to_wstring(pending.moves.size())+L" 个文件，共 "+bytes(counts.planned_bytes);
+             if(counts.duplicate_groups==0)note=L"当前范围内没有内容哈希相同的文件。";
+             const auto minimum=std::to_wstring(policy.min_active_copies);
+             if(counts.groups_at_or_below_minimum)
+                 note+=std::to_wstring(counts.groups_at_or_below_minimum)+L" 组各有 "+minimum+L" 份或更少，全部保留。";
+             if(counts.groups_without_independent_keepers)
+                 note+=std::to_wstring(counts.groups_without_independent_keepers)+L" 组独立文件不足 "+minimum+L" 份，全部保留。";
+         }
+         return {retire?L"清退所选目录的重复文件":L"隔离重复文件",where,changes,effect,note};
      }
      const bool archive=pending.name.rfind("Archive by ",0)==0;
      const auto title=archive?(pending.name=="Archive by file type"?L"按文件类型归档":L"按日期归档"):L"重命名";

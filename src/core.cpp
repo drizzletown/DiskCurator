@@ -1081,12 +1081,24 @@ Plan plan_clean_duplicates(const Inventory& inv,const Duplicates& d,RetentionPol
     check_retention(policy);
     if(!inv.complete()||!d.errors.empty())throw std::runtime_error("Quarantine disabled: scan/content verification incomplete");
     Plan p;p.name="Quarantine verified duplicate files";p.retention=policy;
+    auto& summary=p.cleanup_summary.emplace();
+    summary.duplicate_groups=d.groups.size();
     for(const auto& g:d.groups){
-        if(g.size()<=policy.min_active_copies)continue;
+        if(g.size()<=policy.min_active_copies){
+            ++summary.groups_at_or_below_minimum;
+            continue;
+        }
         auto keepers=choose_keepers(inv,g,policy);
-        if(keepers.size()!=policy.min_active_copies)continue;
+        if(keepers.size()!=policy.min_active_copies){
+            ++summary.groups_without_independent_keepers;
+            continue;
+        }
         std::set<size_t> keep_set(keepers.begin(),keepers.end());
-        for(auto id:g)if(!keep_set.count(id))p.moves.push_back(quarantine_move(inv.files[id],keepers,inv));
+        for(auto id:g){
+            if(keep_set.count(id))continue;
+            p.moves.push_back(quarantine_move(inv.files[id],keepers,inv));
+            summary.planned_bytes+=inv.files[id].bytes;
+        }
     }
     validate_plan(p);
     if(!policy.verify_bytes_before_change){
@@ -1308,6 +1320,12 @@ static void append(const fs::path& f,const std::string& s){
 #endif
 }
 struct Tx {fs::path path;std::string id,label,state;std::vector<Move> moves,copies;std::vector<fs::path> directories;bool copy_mode=false;};
+static fs::path decode_journal_path(const std::string& encoded){
+    // Journals store generic separators. Extended Windows paths require native separators.
+    auto path=from_utf8(unhex(encoded));
+    path.make_preferred();
+    return path;
+}
 static Tx load_tx(const fs::path& journal){
     Tx t;t.path=journal;t.id=utf8(journal.stem());
     std::ifstream in(journal,std::ios::binary);
@@ -1327,20 +1345,20 @@ static Tx load_tx(const fs::path& journal){
         }else if(tag=="MOVE"){
             std::string a,b,c,extra;
             if(!labeled||pending||t.copy_mode||!(s>>a>>b>>c)||(s>>extra))throw std::runtime_error("Invalid MOVE record");
-            t.moves.push_back({from_utf8(unhex(a)),from_utf8(unhex(b)),from_utf8(unhex(c))});
+            t.moves.push_back({decode_journal_path(a),decode_journal_path(b),decode_journal_path(c)});
             if(t.moves.size()>1000000)throw std::runtime_error("Too many journal moves");
         }else if(tag=="COPY"){
             std::string a,b,c,extra;
             if(!labeled||pending||!t.moves.empty()||t.label.compare(0,19,"Merge directories: ")!=0||
                !(s>>a>>b>>c)||(s>>extra))throw std::runtime_error("Invalid COPY record");
             t.copy_mode=true;
-            t.copies.push_back({from_utf8(unhex(a)),from_utf8(unhex(b)),from_utf8(unhex(c))});
+            t.copies.push_back({decode_journal_path(a),decode_journal_path(b),decode_journal_path(c)});
             if(t.copies.size()>1000000)throw std::runtime_error("Too many journal copies");
         }else if(tag=="MKDIR"){
             std::string a,extra;
             if(!labeled||pending||!t.moves.empty()||t.label.compare(0,19,"Merge directories: ")!=0||
                !(s>>a)||(s>>extra))throw std::runtime_error("Invalid MKDIR record");
-            t.copy_mode=true;t.directories.push_back(from_utf8(unhex(a)));
+            t.copy_mode=true;t.directories.push_back(decode_journal_path(a));
             if(t.directories.size()>1000000)throw std::runtime_error("Too many journal directories");
         }else if(tag=="PARTIAL"){
             std::string extra;

@@ -405,6 +405,41 @@ try {
     [void][DiskCuratorGuiSmoke]::SendMessage($clear,0x00F5,[IntPtr]::Zero,[IntPtr]::Zero)
     Wait-Rows 2 'restore duplicate groups after empty search'
     if (Test-Path -LiteralPath (Join-Path $fixture '.DiskCurator-System')) { throw 'Observation created a transaction workspace' }
+    if (-not $CacheUnavailable) {
+        $previewNote=[DiskCuratorGuiSmoke]::GetDlgItem($script:window,248)
+        $apply=[DiskCuratorGuiSmoke]::GetDlgItem($script:window,108)
+        foreach ($keep in @(2,1)) {
+            Send-Action 107
+            $retention=Wait-Dialog 'DCFormNative' 'automatic quarantine retention' '当前扫描范围的多余副本 · 保留策略' @(1,2,2000)
+            $number=[DiskCuratorGuiSmoke]::GetDlgItem($retention,2000)
+            if ($keep -eq 2 -and (Get-ControlText $number) -ne '2') { throw 'Fresh quarantine policy must preserve two copies' }
+            if ($keep -eq 1) { Set-ControlText $number '1' }
+            [void][DiskCuratorGuiSmoke]::PostMessage($retention,0x0111,[IntPtr]1,[IntPtr]::Zero)
+            Wait-Lens 9 'automatic quarantine preview'
+            $totals=Get-ControlText $script:metrics
+            if ($keep -eq 2) {
+                if ($totals -cne '同哈希候选 1 组 · 拟隔离 0 个文件，共 0 B' -or
+                    (Get-ControlText $previewNote) -cne '1 组各有 2 份或更少，全部保留。') {
+                    throw 'Zero-move preview must identify the protected pair and the current retention floor'
+                }
+                Assert-Hidden @(108) 'no quarantine for a protected pair'
+                if ([DiskCuratorGuiSmoke]::IsWindowEnabled($apply)) { throw 'Empty quarantine plan allowed execution' }
+            } else {
+                $size=(Get-Item -LiteralPath $file).Length
+                if ($totals -cne "同哈希候选 1 组 · 拟隔离 1 个文件，共 $size B") { throw 'Quarantine preview has incorrect planned file or byte counts' }
+                Assert-Layout @(108) 'quarantine plan with one eligible file'
+                Send-Action 108
+                $confirm=Wait-Dialog '#32770' 'review automatic quarantine' '确认执行操作计划' @(6,7) @($totals,'执行前逐字节核对保留副本','隔离仍占用磁盘空间')
+                $no=[DiskCuratorGuiSmoke]::GetDlgItem($confirm,7)
+                [void][DiskCuratorGuiSmoke]::PostMessage($confirm,0x0111,[IntPtr]7,$no)
+                Wait-Ready 'return to the declined quarantine preview'
+            }
+            Set-Lens 2
+            Wait-Rows 2 'continue browsing the duplicate pair'
+        }
+        if (Test-Path -LiteralPath (Join-Path $fixture '.DiskCurator-System')) { throw 'Quarantine preview created a transaction' }
+        Write-Host 'PASS quarantine preview: protected pair, eligible file and bytes, explicit byte recheck, and cancellation.'
+    }
     # Exact verification is an explicit action; its output replaces candidate
     # wording only after the comparison task has completed successfully.
     Click-DuplicateShortcut '核验副本'
