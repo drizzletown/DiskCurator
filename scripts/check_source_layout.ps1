@@ -14,6 +14,8 @@ $required = @(
     'src/scan_progress.hpp',
     'src/hash_actions.cpp',
     'src/scoped_analysis.cpp',
+    'src/backup_task.cpp',
+    'src/backup_task.hpp',
     'src/observations.hpp',
     'src/observations.cpp',
     'src/cli.cpp',
@@ -50,6 +52,7 @@ $required = @(
     'tests/test_hash_actions.cpp',
     'tests/test_scan_cancellation.cpp',
     'tests/test_scoped_analysis.cpp',
+    'tests/test_backup_task.cpp',
     'tools/perf_benchmark.cpp',
     'docs/design-v2.6/README.md'
 )

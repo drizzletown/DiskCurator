@@ -94,7 +94,16 @@ static std::error_code read_windows_inventory_directory(const fs::path& dir,Visi
                         (attr&FILE_ATTRIBUTE_DIRECTORY)?fs::file_type::directory:
                         (attr&FILE_ATTRIBUTE_DEVICE)?fs::file_type::unknown:fs::file_type::regular;
         const U64 size=(U64(data.nFileSizeHigh)<<32)|data.nFileSizeLow;
-        visit(dir/data.cFileName,type,size,fs::file_time_type{});
+        fs::file_time_type mtime{};
+#ifdef _MSVC_STL_VERSION
+        // MSVC's filesystem clock uses the FILETIME epoch and its 100 ns ticks.
+        static_assert(std::ratio_equal_v<fs::file_time_type::period,std::ratio<1,10000000>>);
+        ULARGE_INTEGER ticks{};
+        ticks.HighPart=data.ftLastWriteTime.dwHighDateTime;
+        ticks.LowPart=data.ftLastWriteTime.dwLowDateTime;
+        mtime=fs::file_time_type{fs::file_time_type::duration{static_cast<fs::file_time_type::rep>(ticks.QuadPart)}};
+#endif
+        visit(dir/data.cFileName,type,size,mtime);
     }while(FindNextFileW(handle,&data));
     const auto error=GetLastError();
     if(error==ERROR_NO_MORE_FILES)return {};
@@ -125,7 +134,8 @@ static void finish_inventory(Inventory& inv,const std::atomic_bool* cancel,Repor
 }
 
 static InventorySummary enumerate_metadata(const fs::path& input,Inventory* details,const Progress& progress,
-                                          const std::atomic_bool* cancel,const ScanProgressCallback& scan_progress) {
+                                          const std::atomic_bool* cancel,const ScanProgressCallback& scan_progress,
+                                          [[maybe_unused]] bool space_scan=false) {
     std::error_code ec;
     const auto root=fs::absolute(input,ec).lexically_normal();
     if(ec||!fs::is_directory(root,ec)||ec||reparse(root))throw std::runtime_error("Root is not a readable ordinary directory");
@@ -197,7 +207,11 @@ static InventorySummary enumerate_metadata(const fs::path& input,Inventory* deta
             }else record(summary.other_errors,"Unsupported filesystem object: ",path);
         };
 #ifdef _WIN32
-        if(!details){
+        bool native_records=!details;
+#ifdef _MSVC_STL_VERSION
+        native_records=native_records||space_scan;
+#endif
+        if(native_records){
             ec=read_windows_inventory_directory(dir,visit);
             if(ec)record(summary.directory_errors,"Cannot enumerate ",dir);
             report(dir);
@@ -251,6 +265,34 @@ Inventory scan(const fs::path& root,const Progress& progress,const std::atomic_b
     enumerate_metadata(root,&inv,progress,cancel,scan_progress);
     return inv;
 }
+SpaceInventory scan_space(const fs::path& root,const ScanProgressCallback& scan_progress,const std::atomic_bool* cancel){
+    SpaceInventory result;
+    auto& inv=result.inventory;
+    enumerate_metadata(root,&inv,{},cancel,scan_progress,true);
+    for(size_t i=0;i<inv.dirs.size();++i){
+        check_abort(cancel);
+        const auto& folder=inv.dirs[i].rel;
+        result.children.try_emplace(folder);
+        if(!folder.empty())result.children[folder.parent_path()].push_back({true,i});
+    }
+    for(size_t i=0;i<inv.files.size();++i){
+        check_abort(cancel);
+        result.children[inv.files[i].rel.parent_path()].push_back({false,i});
+    }
+    const auto bytes=[&](const SpaceEntry& entry){
+        return entry.directory?inv.dirs[entry.index].bytes:inv.files[entry.index].bytes;
+    };
+    // The inventory is already in path order. Stable sorting preserves this
+    // order among equal-size entries of each kind, with directories first on ties.
+    for(auto& folder:result.children){
+        check_abort(cancel);
+        std::stable_sort(folder.second.begin(),folder.second.end(),[&](const SpaceEntry& a,const SpaceEntry& b){
+            return bytes(a)>bytes(b);
+        });
+    }
+    check_abort(cancel);
+    return result;
+}
 static constexpr U64 FNV=14695981039346656037ULL;
 static U64 fnv(const char* p,size_t n,U64 h=FNV){for(size_t i=0;i<n;++i){h^=static_cast<unsigned char>(p[i]);h*=1099511628211ULL;}return h;}
 using ByteProgress=std::function<void(U64)>;
@@ -298,6 +340,11 @@ static std::optional<bool> equal_bytes(const fs::path& a,const fs::path& b,U64 e
     if(ta && (fs::last_write_time(a,ec)!=*ta||ec))return{};
     if(tb && (fs::last_write_time(b,ec)!=*tb||ec))return{};
     return identical;
+}
+std::optional<bool> equal_scanned_files(const fs::path& left_root,const File& left,
+    const fs::path& right_root,const File& right,const std::atomic_bool* cancel) {
+    if(left.bytes!=right.bytes)return false;
+    return equal_bytes(left_root/left.rel,right_root/right.rel,left.bytes,left.mtime,right.mtime,cancel);
 }
 Duplicates deduplicate(Inventory& inv, const Progress& progress,const std::atomic_bool* cancel,
                        const ScanProgressCallback& scan_progress) {
@@ -956,7 +1003,7 @@ Plan plan_rename(const Inventory& inv,const RenameOptions& opt){
 }
 // Merge is a conservative union of two sibling (or otherwise disjoint) subtrees.
 // Matching paths with different bytes are retained as separate versions.
-MergePlan plan_merge_dirs(const Inventory& inv,const fs::path& source,const fs::path& destination){
+MergePlan plan_merge_dirs(const Inventory& inv,const fs::path& source,const fs::path& destination,MergeMode mode){
     if(!inv.complete())throw std::runtime_error("Directory merge needs a complete scan");
     for(const auto& f:inv.files)if(f.content<0)throw std::runtime_error("Directory merge needs complete content verification");
     if(source.empty()||destination.empty()||!is_inside(source)||!is_inside(destination)||
@@ -997,6 +1044,7 @@ MergePlan plan_merge_dirs(const Inventory& inv,const fs::path& source,const fs::
         if(other!=existing_files.end()){
             if(other->second->content==f.content){++plan.identical;
                 plan.skipped.push_back({f.rel,dest,f.bytes,f.mtime,other->second->mtime});continue;}
+            if(mode==MergeMode::MissingOnly){++plan.skipped_conflicts;continue;}
             ++plan.conflicts;
             // Never silently replace either version of a name collision.
             // Use a deterministic source-suffixed filename within the same folder.
@@ -1026,7 +1074,9 @@ MergePlan plan_merge_dirs(const Inventory& inv,const fs::path& source,const fs::
         }else if(target_files.count(path_key(dest)))
             throw std::runtime_error("Merge generates duplicate destination: "+utf8(dest));
         target_files.insert(path_key(dest));
-        plan.copies.push_back({f.rel,dest,f.bytes,f.mtime});
+        if(mode==MergeMode::MissingOnly&&f.sha256.size()!=64)
+            throw std::runtime_error("Backup copy requires a full scan digest");
+        plan.copies.push_back({f.rel,dest,f.bytes,f.mtime,mode==MergeMode::MissingOnly?f.sha256:std::string{}});
     }
     // Directory paths recorded are derived from source directories, never from
     // parent paths outside the selected merge destination.
@@ -1218,9 +1268,19 @@ static std::string year_month(fs::file_time_type ft){
 #endif
     std::ostringstream ss;ss<<(tm.tm_year+1900)<<"/"<<std::setw(4)<<std::setfill('0')<<(tm.tm_year+1900)<<"-"<<std::setw(2)<<(tm.tm_mon+1);return ss.str();
 }
-Plan plan_archive(const Inventory& inv,const ArchiveOptions& opt,const Progress& progress,const std::atomic_bool* cancel){
+using ArchiveReuse=std::function<bool(const File&,const fs::path&)>;
+static Plan plan_archive_targets(const Inventory& inv,const ArchiveOptions& opt,const Progress& progress,
+                                 const std::atomic_bool* cancel,const ArchiveReuse& reuse){
     if(!is_inside(opt.destination)||opt.destination.empty()||opt.destination==fs::path("."))throw std::runtime_error("Archive destination must be a subfolder");
     if(component_key(opt.destination)==L".diskcurator-system"||beneath(opt.destination,L".DiskCurator-System"))throw std::runtime_error("Invalid archive destination");
+    if(!opt.source.empty()){
+        if(!is_inside(opt.source)||beneath(opt.source,L".DiskCurator-System")||
+           std::none_of(inv.dirs.begin(),inv.dirs.end(),[&](const Folder& dir){return dir.rel==opt.source;}))
+            throw std::runtime_error("Archive source must be a scanned directory");
+        const auto target=opt.destination.lexically_relative(opt.source);
+        if(target.empty()||target==L"."||!is_inside(target))
+            throw std::runtime_error("Archive destination must be inside the selected directory");
+    }
     Plan p;p.name=opt.mode==ArchiveMode::ByType?"Archive by file type":"Archive by photo date";
     std::set<std::wstring> reserved;
     // Repeated names (IMG_0001.jpg in hundreds of backups) must not restart
@@ -1235,7 +1295,9 @@ Plan plan_archive(const Inventory& inv,const ArchiveOptions& opt,const Progress&
         if(ec)throw std::runtime_error("Cannot inspect archive destination "+utf8(rel)+": "+ec.message());
         return st.type()!=fs::file_type::not_found;
     };
-    for(auto&f:inv.files){check_abort(cancel);if(!opt.recursive&&!f.rel.parent_path().empty())continue;
+    for(auto&f:inv.files){check_abort(cancel);
+        if(!opt.source.empty()&&!is_inside(f.rel.lexically_relative(opt.source)))continue;
+        if(!opt.recursive&&f.rel.parent_path()!=opt.source)continue;
         if(beneath(f.rel,opt.destination))continue;
         fs::path sub;
         if(opt.mode==ArchiveMode::ByType)sub=from_utf8(extension_category(f.rel));
@@ -1252,7 +1314,7 @@ Plan plan_archive(const Inventory& inv,const ArchiveOptions& opt,const Progress&
         int& cursor=next_suffix[path_key(newfile)];
         if(cursor==0){cursor=2;}
         else newfile=dir/fs::path(stem+L" ("+std::to_wstring(cursor++)+L")"+ext);
-        while(occupied(newfile)){
+        while(occupied(newfile)&&!(reuse&&!reserved.count(path_key(newfile))&&reuse(f,newfile))){
             if(cursor>1000000)throw std::runtime_error("Cannot find free destination filename");
             newfile=dir/fs::path(stem+L" ("+std::to_wstring(cursor++)+L")"+ext);
         }
@@ -1261,6 +1323,9 @@ Plan plan_archive(const Inventory& inv,const ArchiveOptions& opt,const Progress&
     }
     if(used_fallback)p.warnings.push_back(std::to_string(used_fallback)+" photos use file modification date, not EXIF capture date.");
     validate_plan(p);return p;
+}
+Plan plan_archive(const Inventory& inv,const ArchiveOptions& opt,const Progress& progress,const std::atomic_bool* cancel){
+    return plan_archive_targets(inv,opt,progress,cancel,{});
 }
 // Journals are append-only. Relative paths are UTF-8 hex encoded to preserve arbitrary characters.
 // A process-wide, root-specific kernel mutex serializes mutations across GUI/CLI instances.
@@ -1888,6 +1953,8 @@ Result execute_merge_plan(const fs::path& input,const MergePlan& plan){
                 if(!eq||!*eq)throw std::runtime_error("Source changed or staged copy verification failed: "+utf8(c.from));
                 fs::last_write_time(stage,c.mtime,cp);
                 if(cp)throw std::runtime_error("Failed to preserve merged file timestamp: "+cp.message());
+                if(!c.expected_sha256.empty()&&sha256_file(stage,c.bytes,c.mtime)!=c.expected_sha256)
+                    throw std::runtime_error("Backup copy content changed since comparison: "+utf8(c.from));
                 sync_staged_file(stage);
             }
             append(journal,"STAGEDALL");
@@ -1930,7 +1997,13 @@ Result undo_latest(const fs::path& input){auto root=fs::absolute(input).lexicall
         return res;
     }return {false,"No completed transaction available to undo",{}};
 }
-std::vector<HistoryItem> history(const fs::path& root){std::vector<HistoryItem> v;for(auto&t:all_tx(root))v.push_back({t.id,t.label,t.state,t.copy_mode?t.copies.size()+t.directories.size():t.moves.size()});std::reverse(v.begin(),v.end());return v;}
+std::vector<HistoryItem> history(const fs::path& root){
+    std::vector<HistoryItem> items;
+    for(const auto& tx:all_tx(root))
+        items.push_back({tx.id,tx.label,tx.state,tx.copy_mode?tx.copies.size()+tx.directories.size():tx.moves.size(),tx.copy_mode});
+    std::reverse(items.begin(),items.end());
+    return items;
+}
 std::vector<std::pair<std::string,std::vector<std::string>>> backup_safety(const Inventory& inv,const Duplicates& d){
     std::vector<std::pair<std::string,std::vector<std::string>>> out;
     size_t unique=inv.files.size();size_t copied=0;U64 extra=0;
@@ -2242,19 +2315,95 @@ StructurePlan plan_structure(const Inventory& inv,const StructureSuggestion& pro
     if(p.renamed_conflicts)p.warnings.push_back(std::to_string(p.renamed_conflicts)+" name conflicts retained as independently named versions");
     return p;
 }
+StructurePlan plan_archive_copy(const Inventory& inv,const ArchiveOptions& opt,const Progress& progress,
+                                const std::atomic_bool* cancel){
+    check_structure_path(opt.destination);
+    if(!opt.source.empty())check_structure_path(opt.source);
+    const auto relative_output=opt.destination.lexically_relative(opt.source);
+    if(relative_output.empty()||relative_output==L"."||!is_inside(relative_output))
+        throw std::runtime_error("Archive output must be inside the selected folder");
+    check_source_ancestors(inv.root,opt.source);
+    check_recovery_ancestors(inv.root,opt.destination);
+    StructurePlan result;
+    result.output_base=opt.destination;
+    result.archive_source=opt.source;
+    result.root_snapshot=snapshot(inv,opt.source,true);
+    if(!inv.complete()){
+        const auto local=scan(inv.root/opt.source,progress,cancel);
+        if(!local.complete()||snapshot(local,{},true)!=result.root_snapshot)
+            throw std::runtime_error("Selected archive folder changed or could not be read completely");
+    }
+    std::map<fs::path,const File*> existing;
+    std::set<fs::path> existing_dirs;
+    for(const auto& f:inv.files)if(beneath(f.rel,opt.destination))existing.emplace(f.rel,&f);
+    for(const auto& d:inv.dirs)existing_dirs.insert(d.rel);
+    if(!existing_dirs.count(opt.destination.parent_path()))
+        throw std::runtime_error("Select an existing parent for the archive output directory");
+    std::set<fs::path> verified_targets;
+    const auto reusable=[&](const File& f,const fs::path& target){
+        const auto found=existing.find(target);
+        if(found==existing.end()||found->second->bytes!=f.bytes)return false;
+        check_source_ancestors(inv.root,f.rel);check_source_ancestors(inv.root,target);
+        if(reparse(inv.root/f.rel)||reparse(inv.root/target))
+            throw std::runtime_error("Archive path changed to a reparse point");
+        const auto same=equal_bytes(inv.root/f.rel,inv.root/target,f.bytes,f.mtime,found->second->mtime,cancel);
+        if(!same)throw std::runtime_error("Archive file changed while comparing existing contents");
+        if(*same)verified_targets.insert(target);
+        return *same;
+    };
+    const auto targets=plan_archive_targets(inv,opt,progress,cancel,reusable);
+    result.warnings=targets.warnings;
+    std::set<fs::path> new_dirs;
+    for(const auto& move:targets.moves){
+        const auto& info=move.expected_source.front();
+        check_structure_path(move.from);check_structure_path(move.to);
+        check_source_ancestors(inv.root,move.from);check_recovery_ancestors(inv.root,move.to);
+        if(reparse(inv.root/move.from))throw std::runtime_error("Archive source changed to a reparse point");
+        const auto sig=full_fingerprint(inv.root/move.from,info.bytes,info.mtime,cancel);
+        if(!sig)throw std::runtime_error("Cannot read stable archive source: "+utf8(move.from));
+        const auto prior=existing.find(move.to);
+        const bool reused=verified_targets.count(move.to)!=0;
+        if(!reused&&prior!=existing.end())
+            throw std::runtime_error("Archive target disappeared since the scan: "+utf8(move.to));
+        result.mappings.push_back({move.from,move.to,reused?"REUSE_EXISTING":"COPY",info.bytes,info.mtime,*sig});
+        if(reused){
+            result.existing_skips.push_back({move.from,move.to,info.bytes,info.mtime,prior->second->mtime});
+            continue;
+        }
+        for(auto dir=move.to.parent_path();!existing_dirs.count(dir);dir=dir.parent_path()){
+            if(!beneath(dir,opt.destination)||existing.count(dir))
+                throw std::runtime_error("Invalid archive target directory: "+utf8(dir));
+            if(!new_dirs.insert(dir).second)break;
+        }
+        result.copies.push_back({move.from,move.to,info.bytes,info.mtime});
+        result.bytes_to_copy+=info.bytes;
+        if(move.from.filename()!=move.to.filename())++result.renamed_conflicts;
+    }
+    result.directories.assign(new_dirs.begin(),new_dirs.end());
+    return result;
+}
 Result execute_structure_plan(const fs::path& input,const StructurePlan& plan){
     const bool nothing_to_copy=plan.copies.empty()&&plan.directories.empty();
     const auto root=fs::absolute(input).lexically_normal();
     std::error_code ec;
     if(!fs::is_directory(root,ec)||ec||reparse(root))return {false,"Unsafe or unavailable root",{}};
-    try{check_structure_path(plan.output_base);if(std::distance(plan.output_base.begin(),plan.output_base.end())!=1)
-        throw std::runtime_error("Output must be a top-level subdirectory");}
+    try{
+        check_structure_path(plan.output_base);
+        if(plan.archive_source){
+            const auto& source=*plan.archive_source;
+            if(!source.empty())check_structure_path(source);
+            const auto output=plan.output_base.lexically_relative(source);
+            if(output.empty()||output==L"."||!is_inside(output))throw std::runtime_error("Invalid archive output");
+            check_source_ancestors(root,source);
+        }else if(std::distance(plan.output_base.begin(),plan.output_base.end())!=1)
+            throw std::runtime_error("Output must be a top-level subdirectory");
+    }
     catch(const std::exception& e){return {false,e.what(),{}};}
     RootMutationLock guard(root);
     for(const auto& r:recover_incomplete(root))if(r.compare(0,6,"MANUAL")==0)return {false,r,{}};
     Result result;
     try{
-        auto fresh=scan(root);
+        auto fresh=scan(plan.archive_source?root/(*plan.archive_source):root);
         if(!fresh.complete()||snapshot(fresh,{},true)!=plan.root_snapshot)
             throw std::runtime_error("Root directory changed since proposal; rescan before executing");
         // The preview is bound to the exact bytes scanned, not just metadata.
@@ -2273,7 +2422,8 @@ Result execute_structure_plan(const fs::path& input,const StructurePlan& plan){
         }
         for(const auto& c:plan.copies){
             check_structure_path(c.from);check_structure_path(c.to);
-            if(c.from.empty()||!beneath(c.to,plan.output_base)||beneath(c.from,plan.output_base)||
+            if(c.from.empty()||(plan.archive_source&&!is_inside(c.from.lexically_relative(*plan.archive_source)))||
+                !beneath(c.to,plan.output_base)||beneath(c.from,plan.output_base)||
                 !targets.insert(path_key(c.to)).second||path_exists_checked(root/c.to))
                 throw std::runtime_error("Unsafe or occupied proposed file: "+utf8(c.to));
             check_source_ancestors(root,c.from);check_recovery_ancestors(root,c.to);
@@ -2299,7 +2449,8 @@ Result execute_structure_plan(const fs::path& input,const StructurePlan& plan){
         init_workspace(root);
         auto id=txid();result.transaction=id;
         const auto journal=journal_dir(root)/from_utf8(id+".log");
-        append(journal,"LABEL "+hex("Merge directories: Structure reorganization -> "+utf8(plan.output_base)));
+        const auto label=plan.archive_source?"Merge directories: Archive by copy -> ":"Merge directories: Structure reorganization -> ";
+        append(journal,"LABEL "+hex(label+utf8(plan.output_base)));
         for(size_t i=0;i<plan.copies.size();++i){const auto& c=plan.copies[i];
             const auto stage=SYS/L"stage"/from_utf8(id)/from_utf8(std::to_string(i));
             append(journal,"COPY "+hex(utf8(c.from))+" "+hex(utf8(c.to))+" "+hex(utf8(stage)));

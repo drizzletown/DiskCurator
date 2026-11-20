@@ -48,10 +48,23 @@ InventorySummary scan_inventory(const fs::path& root, const ScanProgressCallback
 using Progress = std::function<void(const std::string&)>;
 Inventory scan(const fs::path& root, const Progress& progress={}, const std::atomic_bool* cancel=nullptr,
                const ScanProgressCallback& scan_progress={});
+struct SpaceEntry { bool directory; size_t index; };
+struct SpaceInventory {
+    Inventory inventory;
+    // Immediate children by relative directory, including empty directories.
+    // Each index refers to inventory.dirs or inventory.files. Largest entries come first.
+    std::map<fs::path,std::vector<SpaceEntry>> children;
+};
+SpaceInventory scan_space(const fs::path& root, const ScanProgressCallback& scan_progress={},
+                          const std::atomic_bool* cancel=nullptr);
 // Full initial inventory: compute SHA-256 for EVERY regular file and write an
 // external, rebuildable content index. No old index is trusted as proof.
 Inventory scan_hashed(const fs::path& root, const Progress& progress={}, const std::atomic_bool* cancel=nullptr,
-                      const ScanProgressCallback& scan_progress={});
+                      const ScanProgressCallback& scan_progress={}, bool persist_index=true);
+// Compare both stable file snapshots byte-for-byte. An empty result means a file
+// changed or could not be read during verification.
+std::optional<bool> equal_scanned_files(const fs::path& left_root,const File& left,
+    const fs::path& right_root,const File& right,const std::atomic_bool* cancel=nullptr);
 // Multi-volume discovery result. Each volume is an independent scan root.
 // Matching SHA-256+size identifies CANDIDATES, not byte-proven duplicates.
 // No cross-volume mutation API is exposed: a volume must be explicitly selected.
@@ -203,8 +216,11 @@ bool valid_file_name(const fs::path& name);
 struct RenameOptions { fs::path dir; std::wstring pattern=L"*"; std::wstring find,replace,prefix,suffix; int number_start=0; int digits=3; bool include_files=true, include_dirs=true; std::optional<FileRename> single_file; };
 Plan plan_rename(const Inventory& inv, const RenameOptions& opt);
 // Merge is additive: the source remains untouched, and the destination never overwrites.
-struct CopyTask { fs::path from,to; U64 bytes=0; fs::file_time_type mtime{}; };
+// Backup completion binds each staged copy to the digest shown by its comparison.
+struct CopyTask { fs::path from,to; U64 bytes=0; fs::file_time_type mtime{}; std::string expected_sha256{}; };
+std::string sha256_file(const fs::path& file,U64 size,fs::file_time_type mtime);
 struct MergeSkip { fs::path from,to; U64 bytes=0; fs::file_time_type from_time{},to_time{}; };
+enum class MergeMode { PreserveVersions, MissingOnly };
 struct MergePlan {
     fs::path source,destination;
     std::vector<SnapshotEntry> source_snapshot,destination_snapshot;
@@ -213,12 +229,15 @@ struct MergePlan {
     std::vector<fs::path> directories; // paths to create in the selected root
     size_t identical=0;
     size_t conflicts=0; // same relative filename, different verified content
+    size_t skipped_conflicts=0; // MissingOnly leaves these paths untouched
     std::vector<std::string> warnings;
 };
-MergePlan plan_merge_dirs(const Inventory& inv,const fs::path& source,const fs::path& destination);
+MergePlan plan_merge_dirs(const Inventory& inv,const fs::path& source,const fs::path& destination,
+                          MergeMode mode=MergeMode::PreserveVersions);
 MergePlan plan_hashed_directory_merge(const Inventory& inv,
     const fs::path& source, const fs::path& destination, const Progress& progress={},
-    const std::atomic_bool* cancel=nullptr, const ScanProgressCallback& scan_progress={});
+    const std::atomic_bool* cancel=nullptr, const ScanProgressCallback& scan_progress={},
+    MergeMode mode=MergeMode::PreserveVersions);
 // One-root proposed directory structure. Suggestions and edits are read-only.
 // A mapping with source="." applies only to files directly inside the root.
 struct StructureRule {
@@ -246,6 +265,7 @@ struct StructureMapping {
 };
 struct StructurePlan {
     fs::path output_base;
+    std::optional<fs::path> archive_source; // Present for copy-by-type/date within a selected folder.
     std::vector<StructureRule> rules;
     std::vector<SnapshotEntry> root_snapshot;
     std::vector<CopyTask> copies;
@@ -284,15 +304,23 @@ Plan plan_clean_hashed_duplicates(const Inventory& inv, RetentionPolicy policy={
 RetirementProposal plan_retire_hashed_directory(const Inventory& inv,
     const fs::path& source_folder, RetentionPolicy policy={});
 enum class ArchiveMode { ByType, ByYearMonth };
-struct ArchiveOptions { ArchiveMode mode=ArchiveMode::ByType; fs::path destination=L"Organized"; bool recursive=true; bool use_mtime_fallback=true; };
+struct ArchiveOptions {
+    ArchiveMode mode=ArchiveMode::ByType;
+    fs::path destination=L"Organized";
+    bool recursive=true;
+    bool use_mtime_fallback=true;
+    fs::path source;  // Empty means the entire inventory. Both paths are relative to its root.
+};
 Plan plan_archive(const Inventory& inv, const ArchiveOptions& opt, const Progress& progress={}, const std::atomic_bool* cancel=nullptr);
+StructurePlan plan_archive_copy(const Inventory& inv, const ArchiveOptions& opt,
+                                const Progress& progress={}, const std::atomic_bool* cancel=nullptr);
 struct Result { bool success=false; std::string message; std::string transaction; };
 Result execute_structure_plan(const fs::path& root, const StructurePlan& plan);
 Result execute_plan(const fs::path& root, const Plan& plan);
 Result execute_merge_plan(const fs::path& root, const MergePlan& plan);
 Result undo_latest(const fs::path& root);
 std::vector<std::string> recover_incomplete(const fs::path& root);
-struct HistoryItem { std::string transaction,label,status; size_t items=0; };
+struct HistoryItem { std::string transaction,label,status; size_t items=0; bool copy_mode=false; };
 std::vector<HistoryItem> history(const fs::path& root);
 std::vector<std::pair<std::string,std::vector<std::string>>> backup_safety(const Inventory& inv, const Duplicates& duplicates);
 std::string csv_quote(const std::string& s);

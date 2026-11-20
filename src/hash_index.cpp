@@ -328,8 +328,14 @@ std::string sha256_text(const std::string& text){
  Sha256 digest;digest.update(text.data(),text.size());return digest.finish();
 }
 fs::path hash_cache_root(){return index_dir();}
+std::string sha256_file(const fs::path& path,U64 size,fs::file_time_type mtime){
+ FileDigest digest;std::vector<char> buffer(1024U*1024U);
+ const ScanProgressCallback no_status;const Progress no_text;
+ ScanReporter reporter(path,no_status,no_text);
+ return hash_file(path,size,mtime,digest,buffer,reporter,nullptr);
+}
 Inventory scan_hashed(const fs::path& root,const Progress& progress,const std::atomic_bool* cancel,
-                      const ScanProgressCallback& scan_progress){
+                      const ScanProgressCallback& scan_progress,bool persist_index){
  // Never scan the cache itself or one of its descendants: that would index
  // mutable application data. A volume root is permitted because scan() skips
  // the cache branch during directory traversal.
@@ -357,8 +363,10 @@ Inventory scan_hashed(const fs::path& root,const Progress& progress,const std::a
    reporter.emit();
  }
  reporter.state.current_file.clear();reporter.emit(true);check_cancel(cancel);
- reporter.state.phase=ScanPhase::SavingIndex;reporter.emit(true);
- save_index(inv,progress,reporter,cancel);check_cancel(cancel);
+ if(persist_index){
+    reporter.state.phase=ScanPhase::SavingIndex;reporter.emit(true);
+    save_index(inv,progress,reporter,cancel);check_cancel(cancel);
+ }
  reporter.state.phase=ScanPhase::Complete;reporter.emit(true);
  return inv;
 }

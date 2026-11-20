@@ -107,9 +107,9 @@ DirectoryPairReport evaluate_hashed_directory_pair(const Inventory& observed,con
     check_cancel(cancel);report_complete(pair.progress,structured);return report;
 }
 MergePlan plan_hashed_directory_merge(const Inventory& observed,const fs::path& a,const fs::path& b,
-    const Progress& progress,const std::atomic_bool* cancel,const ScanProgressCallback& structured) {
+    const Progress& progress,const std::atomic_bool* cancel,const ScanProgressCallback& structured,MergeMode mode) {
     auto pair=verify_pair_inventory(observed,a,b,true,progress,cancel,structured);
-    auto plan=plan_merge_dirs(pair.inventory,pair.left,pair.right);
+    auto plan=plan_merge_dirs(pair.inventory,pair.left,pair.right,mode);
     check_cancel(cancel);report_complete(pair.progress,structured);return plan;
 }
 }

@@ -140,41 +140,12 @@ function Send-Action([int]$command) {
     # a synchronous message while the target is waiting for user confirmation.
     [void][DiskCuratorGuiSmoke]::PostMessage($script:window,0x111,[IntPtr]$command,[IntPtr]::Zero)
 }
-function Set-Lens([int]$index) {
-    [void][DiskCuratorGuiSmoke]::SendMessage($script:lens,0x14E,[IntPtr]$index,[IntPtr]::Zero)
-    [void][DiskCuratorGuiSmoke]::SendMessage($script:window,0x111,[IntPtr]65767,$script:lens)
-}
 function Wait-Rows([long]$expected,[string]$phase) {
     for ($i=0; $i -lt 100; $i++) {
         if ((Get-RowCount) -eq $expected) { return }
         Start-Sleep -Milliseconds 50
     }
     throw "GUI ${phase}: expected $expected rows, got $(Get-RowCount)"
-}
-function Wait-Ready([string]$phase,[int]$seconds=40) {
-    $deadline = [DateTime]::UtcNow.AddSeconds($seconds)
-    $readySamples = 0
-    do {
-        if ($script:process.HasExited) { throw "GUI exited during ${phase}" }
-        if ([DiskCuratorGuiSmoke]::IsWindowEnabled($script:scanButton) -and [DiskCuratorGuiSmoke]::IsWindowEnabled($script:window)) { $readySamples++ } else { $readySamples=0 }
-        if ($readySamples -ge 3) { return }
-        Start-Sleep -Milliseconds 50
-    } while ([DateTime]::UtcNow -lt $deadline)
-    throw "GUI ${phase} timed out: $(Get-ControlText $script:stage) / $(Get-ControlText $script:metrics)"
-}
-function Wait-Lens([int]$expected,[string]$phase) {
-    $deadline=[DateTime]::UtcNow.AddSeconds(40)
-    $readySamples=0
-    do {
-        if ($script:process.HasExited) { throw "GUI exited during ${phase}" }
-        $notice=[DiskCuratorGuiSmoke]::FindOwned([uint32]$script:process.Id,'#32770')
-        if ($notice -ne [IntPtr]::Zero) { throw "Unexpected modal dialog during ${phase}: $(Get-ControlText $notice)" }
-        $actual=[DiskCuratorGuiSmoke]::SendMessage($script:lens,0x147,[IntPtr]::Zero,[IntPtr]::Zero).ToInt64()
-        if ($actual -eq $expected -and [DiskCuratorGuiSmoke]::IsWindowEnabled($script:scanButton) -and [DiskCuratorGuiSmoke]::IsWindowEnabled($script:window)) { $readySamples++ } else { $readySamples=0 }
-        if ($readySamples -ge 3) { return }
-        Start-Sleep -Milliseconds 50
-    } while ([DateTime]::UtcNow -lt $deadline)
-    throw "GUI ${phase}: expected perspective $expected, got $actual"
 }
 function Wait-Dialog([string]$class,[string]$phase,[string]$title,[int[]]$requiredControls,[string[]]$bodyParts=@()) {
     $deadline=[DateTime]::UtcNow.AddSeconds(15)
@@ -222,17 +193,55 @@ function Assert-Layout([int[]]$ids,[string]$phase) {
             -not [DiskCuratorGuiSmoke]::FitsClient($script:window,$control)) { throw "GUI ${phase}: control $id missing, clipped or hidden" }
     }
 }
-function Assert-Hidden([int[]]$ids,[string]$phase) {
-    foreach ($id in $ids) {
-        $control=[DiskCuratorGuiSmoke]::GetDlgItem($script:window,$id)
-        if ($control -eq [IntPtr]::Zero -or [DiskCuratorGuiSmoke]::HasVisibleStyle($control)) { throw "GUI ${phase}: control $id should exist and be hidden" }
+function Control([int]$id) { return [DiskCuratorGuiSmoke]::GetDlgItem($script:window,$id) }
+function Is-Visible([int]$id) {
+    $control=Control $id
+    return $control -ne [IntPtr]::Zero -and [DiskCuratorGuiSmoke]::HasVisibleStyle($control)
+}
+function Text-At([int]$id) { return Get-ControlText (Control $id) }
+function Click([int]$id) {
+    $control=Control $id
+    if (-not (Is-Visible $id) -or -not [DiskCuratorGuiSmoke]::IsWindowEnabled($control)) {
+        throw "Control $id is disabled or hidden: $(Text-At $id)"
+    }
+    [void][DiskCuratorGuiSmoke]::PostMessage($control,0x00F5,[IntPtr]::Zero,[IntPtr]::Zero)
+}
+function Shown-Text {
+    return (@(100,102,108,244,245,247,248,250,251,253,254,273,276,277,278) | ForEach-Object {
+        if (Is-Visible $_) { Text-At $_ }
+    }) -join ' | '
+}
+function Wait-Until([scriptblock]$condition,[string]$phase,[int]$seconds=35) {
+    $deadline=[DateTime]::UtcNow.AddSeconds($seconds)
+    do {
+        if ($script:process.HasExited) { throw "GUI exited during $phase" }
+        if (& $condition) { return }
+        Start-Sleep -Milliseconds 70
+    } while ([DateTime]::UtcNow -lt $deadline)
+    throw "GUI timeout ($phase). Visible text: $(Shown-Text). Rows: $(Get-RowCount)."
+}
+function Click-And-Home {
+    Click 273
+    Wait-Until { (Is-Visible 270) -or ([DiskCuratorGuiSmoke]::FindOwned([uint32]$script:process.Id,'#32770') -ne [IntPtr]::Zero) } 'return to home or discard pending preview'
+    if (-not (Is-Visible 270)) {
+        $dialog=Wait-Dialog '#32770' 'discard an unexecuted preview' '磁盘文件整理助手' @(6,7) @('放弃尚未执行的预览')
+        Accept-Dialog $dialog 6
+        Wait-Until { Is-Visible 270 } 'home after discarding unexecuted preview'
     }
 }
-function Click-DuplicateShortcut([string]$expectedLabel) {
-    $button=[DiskCuratorGuiSmoke]::GetDlgItem($script:window,257)
-    if ((Get-ControlText $button) -cne $expectedLabel -or -not [DiskCuratorGuiSmoke]::IsWindowEnabled($button) -or
-        -not [DiskCuratorGuiSmoke]::HasVisibleStyle($button)) { throw "Expected active duplicate shortcut '$expectedLabel', found '$(Get-ControlText $button)'" }
-    [void][DiskCuratorGuiSmoke]::SendMessage($button,0x00F5,[IntPtr]::Zero,[IntPtr]::Zero)
+function Start-FolderTask([int]$id,[string]$folder) {
+    Click $id
+    Wait-Until { (Is-Visible 100) -and (Is-Visible 102) } 'choose task folder'
+    Set-ControlText (Control 100) $folder
+    Click 102
+}
+function Check-Filter([string]$term,[int]$count) {
+    Set-ControlText (Control 115) $term
+    Wait-Rows $count 'filter result'
+}
+function Accept-Dialog([IntPtr]$dialog,[int]$id) {
+    $button=[DiskCuratorGuiSmoke]::GetDlgItem($dialog,$id)
+    [void][DiskCuratorGuiSmoke]::PostMessage($dialog,0x111,[IntPtr]$id,$button)
 }
 
 function Save-TestWindow([string]$filename) {
@@ -262,322 +271,135 @@ try {
     }
     if ($script:window -eq [IntPtr]::Zero) { throw 'Main GUI window missing' }
     if ((Get-ControlText $script:window) -cne '磁盘文件整理助手') { throw 'Main window did not display the product name' }
-    foreach ($id in @(112,123,200,201,202,203,204,205,206)) {
-        if ([DiskCuratorGuiSmoke]::GetDlgItem($script:window,$id) -ne [IntPtr]::Zero) { throw "Removed sidebar/control still exists: $id" }
+    $script:list=Control 114
+    $script:scanButton=Control 102
+    $script:stage=Control 244
+    $script:metrics=Control 247
+    if (-not [DiskCuratorGuiSmoke]::SetWindowPos($script:window,[IntPtr]::Zero,0,0,820,600,0x16)) { throw 'Cannot size test window' }
+    Assert-Layout @(270,271,272,250) 'task home at 820x600'
+    foreach ($id in @(100,102,108,230,231)) { if (Is-Visible $id) { throw "Unexpected home control $id" } }
+    foreach ($pair in @(@(270,'看空间占用'),@(271,'找重复文件'),@(272,'核对两份备份'))) {
+        if ((Text-At $pair[0]) -notlike ('*'+$pair[1]+'*')) { throw 'Task action has an ambiguous label' }
     }
-    # Exercise the compact layout without showing the test window or moving mouse focus.
-    if (-not [DiskCuratorGuiSmoke]::SetWindowPos($script:window,[IntPtr]::Zero,0,0,820,600,0x16)) { throw 'Cannot size the test window' }
-    Assert-Layout @(253,254,255,256) 'welcome at 820x600'
-    Assert-Hidden @(100,101,102,103,114,115,230,231,243,257,258) 'welcome without a selected range'
     Save-TestWindow '01-welcome.png'
-    $scope=[DiskCuratorGuiSmoke]::GetDlgItem($script:window,230)
-    $rootEdit=[DiskCuratorGuiSmoke]::GetDlgItem($script:window,100)
-    $script:scanButton=[DiskCuratorGuiSmoke]::GetDlgItem($script:window,102)
-    $script:list=[DiskCuratorGuiSmoke]::GetDlgItem($script:window,114)
-    $search=[DiskCuratorGuiSmoke]::GetDlgItem($script:window,115)
-    $script:lens=[DiskCuratorGuiSmoke]::GetDlgItem($script:window,231)
-    $bar=[DiskCuratorGuiSmoke]::GetDlgItem($script:window,243)
-    $script:stage=[DiskCuratorGuiSmoke]::GetDlgItem($script:window,244)
-    $script:metrics=[DiskCuratorGuiSmoke]::GetDlgItem($script:window,247)
-    $status=[DiskCuratorGuiSmoke]::GetDlgItem($script:window,251)
-    if ([DiskCuratorGuiSmoke]::SendMessage($scope,0x147,[IntPtr]::Zero,[IntPtr]::Zero).ToInt64() -ne 0) { throw 'Selected-drive mode must be default' }
-    if ([DiskCuratorGuiSmoke]::IsWindowEnabled($rootEdit)) { throw 'Unselected drive scope must not enable root edit' }
-    # Follow both visible entry points. Cancel both pickers; only the synthetic path below is submitted.
-    $driveEntry=[DiskCuratorGuiSmoke]::GetDlgItem($script:window,256)
-    [void][DiskCuratorGuiSmoke]::PostMessage($driveEntry,0x00F5,[IntPtr]::Zero,[IntPtr]::Zero)
-    $driveDialog=Wait-Dialog 'DCFormNative' 'drive selection' '选择本次需要扫描的磁盘（可以多选）' @(1,2,2000)
-    $driveCount=0
-    while ($true) {
-        $box=[DiskCuratorGuiSmoke]::GetDlgItem($driveDialog,2000+$driveCount)
-        if ($box -eq [IntPtr]::Zero) { break }
-        if ([DiskCuratorGuiSmoke]::SendMessage($box,0x00F0,[IntPtr]::Zero,[IntPtr]::Zero).ToInt32() -ne 0) { throw 'Drive picker preselected a real drive' }
-        $driveCount++
-    }
-    if ($driveCount -eq 0) { throw 'Drive picker did not expose any selectable drives' }
-    Close-TestDialog $driveDialog
-    $folderEntry=[DiskCuratorGuiSmoke]::GetDlgItem($script:window,255)
-    [void][DiskCuratorGuiSmoke]::PostMessage($folderEntry,0x00F5,[IntPtr]::Zero,[IntPtr]::Zero)
-    $folderDialog=Wait-Dialog '#32770' 'folder selection' '选择要扫描的文件夹' @(2)
-    Close-TestDialog $folderDialog
-    if ([DiskCuratorGuiSmoke]::SendMessage($scope,0x147,[IntPtr]::Zero,[IntPtr]::Zero).ToInt32() -ne 1) {
-        [void][DiskCuratorGuiSmoke]::SendMessage($scope,0x14E,[IntPtr]1,[IntPtr]::Zero)
-        [void][DiskCuratorGuiSmoke]::SendMessage($script:window,0x111,[IntPtr]65766,$scope)
-    }
-    $folderA=Join-Path $fixture '资料';$folderB=Join-Path $fixture '备份'
-    New-Item -ItemType Directory -Path $folderA,$folderB -Force | Out-Null
-    [IO.File]::WriteAllText((Join-Path $folderA '甲.txt'),'same-content',[Text.Encoding]::UTF8)
-    [IO.File]::WriteAllText((Join-Path $folderB '乙.txt'),'same-content',[Text.Encoding]::UTF8)
-    [IO.File]::WriteAllText((Join-Path $fixture 'unique.bin'),'different',[Text.Encoding]::UTF8)
-    # The first scan has one unique file and no duplicate groups. The empty
-    # result must not insert a synthetic, selectable file into the list.
-    Set-ControlText $rootEdit $folderA
-    Assert-Layout @(100,101,102,230,258) 'selected folder before scanning'
-    $quickButton=[DiskCuratorGuiSmoke]::GetDlgItem($script:window,258)
-    if ((Get-ControlText $quickButton) -ne '快速盘点') { throw 'A selected folder must offer quick inventory' }
+    $folderA=Join-Path $fixture '原资料';$folderB=Join-Path $fixture '备份'
+    [void][IO.Directory]::CreateDirectory($folderA);[void][IO.Directory]::CreateDirectory($folderB)
     $file=Join-Path $folderA '甲.txt'
+    $twin=Join-Path $folderB '乙.txt'
+    [IO.File]::WriteAllText($file,'same-content',[Text.Encoding]::UTF8)
+    [IO.File]::WriteAllText($twin,'same-content',[Text.Encoding]::UTF8)
+    [IO.File]::WriteAllText((Join-Path $fixture '单一.bin'),'other',[Text.Encoding]::UTF8)
     $before=[IO.File]::GetLastWriteTimeUtc($file)
-    $expectedCounts="1 个文件 · 1 个目录 · $((Get-Item -LiteralPath $file).Length) B"
-    [void][DiskCuratorGuiSmoke]::SendMessage($quickButton,0x00F5,[IntPtr]::Zero,[IntPtr]::Zero)
-    Wait-Ready 'metadata-only inventory'
-    $headline=[DiskCuratorGuiSmoke]::GetDlgItem($script:window,253)
-    $detail=[DiskCuratorGuiSmoke]::GetDlgItem($script:window,254)
-    if ((Get-ControlText $headline) -cne '快速盘点完成' -or (Get-ControlText $detail) -cne $expectedCounts) {
-        throw "Unexpected quick inventory results: $(Get-ControlText $headline) / $(Get-ControlText $detail)"
-    }
-    if ((Get-ControlText $rootEdit) -cne $folderA -or (Get-ControlText $script:scanButton) -cne '开始扫描') { throw 'Inventory must preserve the selected scope for a full scan' }
-    Assert-Hidden @(108,114,115,231,240,241,242,257) 'metadata-only result'
-    if ((Test-Path -LiteralPath (Join-Path $folderA '.DiskCurator-System')) -or
-        @(Get-ChildItem -LiteralPath $folderA -Force).Count -ne 1 -or
-        [IO.File]::GetLastWriteTimeUtc($file) -ne $before -or [IO.File]::ReadAllText($file) -cne 'same-content') { throw 'Quick inventory modified its fixture' }
-    if ((Test-Path -LiteralPath $cacheLocation -PathType Container) -and
-        @(Get-ChildItem -LiteralPath $cacheLocation -Recurse -File -Force).Count -gt 0) { throw 'Quick inventory wrote a cache file' }
-    Write-Host 'PASS quick inventory: count and size shown without modifying the fixture or writing an index; the original scope remains available for SHA-256 scanning.'
-    Assert-Hidden @(103,243) 'idle before scanning'
-    if (-not [DiskCuratorGuiSmoke]::IsWindowEnabled($script:scanButton)) { throw 'A selected folder must enable scanning' }
-    [void][DiskCuratorGuiSmoke]::SendMessage($script:scanButton,0x00F5,[IntPtr]::Zero,[IntPtr]::Zero)
-    Wait-Lens 0 'one unique file'
-    Wait-Rows 1 'one unique file'
-    Click-DuplicateShortcut '重复文件'
-    Wait-Lens 2 'no duplicate groups'
-    Wait-Rows 0 'no fake rows for an empty group list'
-    if ((Get-ControlText $status) -notlike '*未发现*') { throw 'The empty duplicate view must explain that no duplicate files were found' }
-    Click-DuplicateShortcut '返回文件'
-    Wait-Lens 0 'return to the unique file'
-    Wait-Rows 1 'return to the unique file'
-    # An unavailable file should leave the readable results open and identify
-    # the affected path in the overview. No special account rights are needed.
-    $lockedPath=Join-Path $folderA '正在使用.bin'
-    $locked=[IO.File]::Open($lockedPath,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
-    try {
-        $locked.WriteByte(17)
-        $locked.Flush()
-        [void][DiskCuratorGuiSmoke]::SendMessage($script:scanButton,0x00F5,[IntPtr]::Zero,[IntPtr]::Zero)
-        Wait-Lens 0 'partial scan without a blocking dialog'
-        if ((Get-ControlText $status) -notlike '*扫描不完整*1 项异常*扫描概览*') { throw 'Partial results must point to the issue count and details' }
-        Set-Lens 12
-        Set-ControlText $search '正在使用.bin'
-        Wait-Rows 1 'unreadable file in scan overview'
-        if ((Get-ControlText $status) -notlike '*扫描不完整*') { throw 'Filtered results lost the partial scan warning' }
-        Write-Host 'PASS partial scan: accessible results stay open and the overview identifies the unreadable file.'
-    } finally {
-        $locked.Dispose()
-        Remove-Item -LiteralPath $lockedPath -Force
-    }
-    Set-ControlText $rootEdit $fixture
-    [void][DiskCuratorGuiSmoke]::SendMessage($script:scanButton,0x00F5,[IntPtr]::Zero,[IntPtr]::Zero)
-    Wait-Ready 'Unicode content scan'
-    Wait-Rows 3 'file perspective after scan'
-    if ([DiskCuratorGuiSmoke]::SendMessage($bar,0x408,[IntPtr]::Zero,[IntPtr]::Zero).ToInt64() -ne 1000) { throw 'Completed scan progress is not 100%' }
-    if ([string]::IsNullOrWhiteSpace((Get-ControlText $script:metrics))) { throw 'Scan byte/time metrics are empty' }
-    Assert-Layout @(100,101,102,114,115,230,231,240,241,242,245,247,251,252,257) 'results at 820x600'
-    Assert-Hidden @(103,243) 'completed scan'
-    if ([DiskCuratorGuiSmoke]::HeightOutsideControl($script:window,$script:list) -gt 360) { throw 'The completed scan did not reclaim space for the result list' }
+    Start-FolderTask 270 $fixture
+    Wait-Until { (Is-Visible 114) -and (Get-RowCount) -ge 3 } 'metadata-only folder results'
+    if ($before -ne [IO.File]::GetLastWriteTimeUtc($file) -or (Test-Path -LiteralPath (Join-Path $fixture '.DiskCurator-System'))) { throw 'Space scan modified the fixture' }
+    if ((Test-Path -LiteralPath $cacheLocation -PathType Container) -and @(Get-ChildItem -LiteralPath $cacheLocation -File -Recurse -Force).Count -gt 0) { throw 'Metadata-only space task wrote a content index' }
+    Check-Filter '原资料' 1
+    Send-Action 5107
+    Wait-Until { (Get-SelectedCount) -eq 1 } 'select a child folder'
+    [void][DiskCuratorGuiSmoke]::PostMessage($script:list,0x0100,[IntPtr]13,[IntPtr]::Zero)
+    Wait-Until { (Is-Visible 276) -and (Text-At 276) -like '*上一级*' -and (Get-RowCount) -eq 1 } 'open a folder in space results'
+    Click 277
+    $archive=Wait-Dialog 'DCFormNative' 'archive inside the selected folder' '' @(1,2,2000,2001)
+    $mode=[DiskCuratorGuiSmoke]::GetDlgItem($archive,2000)
+    if ([DiskCuratorGuiSmoke]::SendMessage($mode,0x146,[IntPtr]::Zero,[IntPtr]::Zero).ToInt64() -ne 2) { throw 'Folder archive must offer type or year/month' }
+    Accept-Dialog $archive 1
+    Wait-Until { (Is-Visible 108) -and ((Shown-Text) -match '复制') } 'scoped copy archive preview'
+    if (Test-Path -LiteralPath (Join-Path $folderA 'Organized')) { throw 'Folder archive preview wrote its destination' }
+    Click 276
+    Wait-Until { (Is-Visible 276) -and (Text-At 276) -like '*上一级*' } 'return to the previously opened folder'
+    Click 276
+    Wait-Until { -not (Is-Visible 276) -and (Get-RowCount) -eq 3 } 'navigate one level back to root'
+    Click-And-Home
+    Start-FolderTask 271 $fixture
+    Wait-Until { (Is-Visible 114) -and ((Shown-Text) -match '无需|全部保留') } 'protected duplicates explained on the results page'
+    if (Is-Visible 108) { throw 'Default protected pair offered execution' }
+    if (Is-Visible 231) { throw 'Task results exposed the legacy thirteen-view picker' }
     Save-TestWindow '02-results.png'
-    $clear=[DiskCuratorGuiSmoke]::GetDlgItem($script:window,252)
-    if ([DiskCuratorGuiSmoke]::IsWindowEnabled($clear)) { throw 'Empty filter enabled its clear button' }
-    Set-ControlText $search '本次扫描同哈希候选 2'
-    Wait-Rows 2 'SHA candidate copy filter'
-    if (-not [DiskCuratorGuiSmoke]::IsWindowEnabled($clear)) { throw 'Nonempty filter disabled its clear button' }
-    [void][DiskCuratorGuiSmoke]::SendMessage($clear,0x00F5,[IntPtr]::Zero,[IntPtr]::Zero)
-    Wait-Rows 3 'one-click filter reset'
-    if ((Get-ControlText $search) -ne '') { throw 'Clear filter did not clear search text' }
-    Set-ControlText $search '甲.txt';Wait-Rows 1 'keyboard clear fixture'
-    [void][DiskCuratorGuiSmoke]::PostMessage($search,0x0100,[IntPtr]27,[IntPtr]::Zero)
-    Wait-Rows 3 'Escape restores unfiltered results'
-    if ((Get-ControlText $search) -ne '') { throw 'Escape did not clear the filter' }
-    # Row position is not an identity: changing a filter must not silently
-    # transfer a pending selection from one file to another.
-    Set-ControlText $search '甲.txt';Wait-Rows 1 'first file filter'
+    Check-Filter '甲.txt' 1
     Send-Action 5107
-    for ($i=0;$i -lt 40 -and (Get-SelectedCount) -ne 1;$i++) { Start-Sleep -Milliseconds 25 }
-    if ((Get-SelectedCount) -ne 1) { throw 'Select visible results failed' }
-    Set-ControlText $search '乙.txt';Wait-Rows 1 'second file filter'
-    if ((Get-SelectedCount) -ne 0) { throw 'Filter transferred selection to a different file' }
-    Set-ControlText $search '';Send-Action 5108
-    Set-Lens 1;Wait-Rows 3 'directory perspective'
-    Click-DuplicateShortcut '重复文件'
-    Wait-Lens 2 'duplicate files shortcut'
-    Wait-Rows 2 'duplicate candidate perspective'
-    Set-ControlText $search '不在夹具中的文件'
-    Wait-Rows 0 'no matches in duplicate groups'
-    if ((Get-ControlText $status) -notlike '*没有匹配*') { throw 'Filtered duplicate view must explain that the search matched no files' }
-    Assert-Layout @(252) 'clear empty duplicate search'
-    [void][DiskCuratorGuiSmoke]::SendMessage($clear,0x00F5,[IntPtr]::Zero,[IntPtr]::Zero)
-    Wait-Rows 2 'restore duplicate groups after empty search'
-    if (Test-Path -LiteralPath (Join-Path $fixture '.DiskCurator-System')) { throw 'Observation created a transaction workspace' }
-    if (-not $CacheUnavailable) {
-        $previewNote=[DiskCuratorGuiSmoke]::GetDlgItem($script:window,248)
-        $apply=[DiskCuratorGuiSmoke]::GetDlgItem($script:window,108)
-        foreach ($keep in @(2,1)) {
-            Send-Action 107
-            $retention=Wait-Dialog 'DCFormNative' 'automatic quarantine retention' '当前扫描范围的多余副本 · 保留策略' @(1,2,2000)
-            $number=[DiskCuratorGuiSmoke]::GetDlgItem($retention,2000)
-            if ($keep -eq 2 -and (Get-ControlText $number) -ne '2') { throw 'Fresh quarantine policy must preserve two copies' }
-            if ($keep -eq 1) { Set-ControlText $number '1' }
-            [void][DiskCuratorGuiSmoke]::PostMessage($retention,0x0111,[IntPtr]1,[IntPtr]::Zero)
-            Wait-Lens 9 'automatic quarantine preview'
-            $totals=Get-ControlText $script:metrics
-            if ($keep -eq 2) {
-                if ($totals -cne '同哈希候选 1 组 · 拟隔离 0 个文件，共 0 B' -or
-                    (Get-ControlText $previewNote) -cne '1 组各有 2 份或更少，全部保留。') {
-                    throw 'Zero-move preview must identify the protected pair and the current retention floor'
-                }
-                Assert-Hidden @(108) 'no quarantine for a protected pair'
-                if ([DiskCuratorGuiSmoke]::IsWindowEnabled($apply)) { throw 'Empty quarantine plan allowed execution' }
-            } else {
-                $size=(Get-Item -LiteralPath $file).Length
-                if ($totals -cne "同哈希候选 1 组 · 拟隔离 1 个文件，共 $size B") { throw 'Quarantine preview has incorrect planned file or byte counts' }
-                Assert-Layout @(108) 'quarantine plan with one eligible file'
-                Send-Action 108
-                $confirm=Wait-Dialog '#32770' 'review automatic quarantine' '确认执行操作计划' @(6,7) @($totals,'执行前逐字节核对保留副本','隔离仍占用磁盘空间')
-                $no=[DiskCuratorGuiSmoke]::GetDlgItem($confirm,7)
-                [void][DiskCuratorGuiSmoke]::PostMessage($confirm,0x0111,[IntPtr]7,$no)
-                Wait-Ready 'return to the declined quarantine preview'
-            }
-            Set-Lens 2
-            Wait-Rows 2 'continue browsing the duplicate pair'
-        }
-        if (Test-Path -LiteralPath (Join-Path $fixture '.DiskCurator-System')) { throw 'Quarantine preview created a transaction' }
-        Write-Host 'PASS quarantine preview: protected pair, eligible file and bytes, explicit byte recheck, and cancellation.'
-    }
-    # Exact verification is an explicit action; its output replaces candidate
-    # wording only after the comparison task has completed successfully.
-    Click-DuplicateShortcut '核验副本'
-    Wait-Lens 2 'explicit byte verification'
-    Click-DuplicateShortcut '返回文件'
-    Wait-Lens 0 'return from verified duplicate groups'
-    Wait-Rows 3 'file perspective reuse'
-    Set-ControlText $search '当前根精确副本 2'
-    Wait-Rows 2 'explicit byte verification'
-    Wait-Ready 'explicit byte verification'
-    Set-ControlText $search ''
-    Set-ControlText $search '甲.txt';Wait-Rows 1 'select file for direct rename'
+    Wait-Until { (Get-SelectedCount) -eq 1 } 'select a search result'
+    Check-Filter '乙.txt' 1
+    if ((Get-SelectedCount) -ne 0) { throw 'Changing the filter transferred file selection to another path' }
+    Click 252
+    Wait-Until { (Text-At 115) -eq '' } 'clear search'
+    Click 257
+    Wait-Until { (Is-Visible 114) -and -not (Is-Visible 257) -and ((Shown-Text) -match '核验') } 'explicit byte verification'
+    Check-Filter '甲.txt' 1
     Send-Action 5107
-    [void][DiskCuratorGuiSmoke]::PostMessage($script:list,0x0100,[IntPtr]0x71,[IntPtr]::Zero) # F2 down
-    [void][DiskCuratorGuiSmoke]::PostMessage($script:list,0x0101,[IntPtr]0x71,[IntPtr]::Zero)
-    $rename=Wait-Dialog 'DCFormNative' 'single file rename' '重命名文件' @(1,2,2000)
-    $newName=[DiskCuratorGuiSmoke]::GetDlgItem($rename,2000)
-    if ((Get-ControlText $newName) -cne '甲.txt' -or [DiskCuratorGuiSmoke]::GetDlgItem($rename,2001) -ne [IntPtr]::Zero) { throw 'Single-file rename should open one prefilled name field' }
-    Set-ControlText $newName '已更名.txt'
-    [void][DiskCuratorGuiSmoke]::PostMessage($rename,0x0111,[IntPtr]1,[IntPtr]::Zero)
-    Wait-Lens 9 'single-file rename preview'
-    if ((Get-ControlText $search) -ne '') { throw 'The new rename preview inherited the file selection filter' }
-    Set-ControlText $search '已更名.txt';Wait-Rows 1 'one mapped rename destination'
-    Send-Action 108
-    $renameConfirm=Wait-Dialog '#32770' 'review single file rename' '确认执行操作计划' @(6,7) @($fixture,'甲.txt','已更名.txt','执行上述全部变更')
-    $defaultButton=[DiskCuratorGuiSmoke]::SendMessage($renameConfirm,0x0400,[IntPtr]::Zero,[IntPtr]::Zero).ToInt64() -band 0xffff
-    if ($defaultButton -ne 7) { throw 'The execution confirmation must default to No' }
-    $no=[DiskCuratorGuiSmoke]::GetDlgItem($renameConfirm,7)
-    [void][DiskCuratorGuiSmoke]::PostMessage($renameConfirm,0x0111,[IntPtr]7,$no)
-    Wait-Ready 'decline single-file rename'
-    Wait-Lens 9 'declining must preserve the preview'
-    if ((Get-ControlText $search) -cne '已更名.txt' -or (Get-RowCount) -ne 1) { throw 'Declining execution lost the preview filter' }
-    if ((Test-Path -LiteralPath (Join-Path $folderA '已更名.txt')) -or -not (Test-Path -LiteralPath (Join-Path $folderA '甲.txt'))) { throw 'Declining confirmation changed the source file' }
-    Set-Lens 0;Wait-Rows 3 'back to files after declined preview'
-    Send-Action 106
-    $archiveDialog=Wait-Dialog 'DCFormNative' 'archive options' '归档当前目录的文件' @(1,2,2000)
-    $mode=[DiskCuratorGuiSmoke]::GetDlgItem($archiveDialog,2000)
-    if ([DiskCuratorGuiSmoke]::SendMessage($mode,0x146,[IntPtr]::Zero,[IntPtr]::Zero).ToInt32() -ne 2 -or
-        [DiskCuratorGuiSmoke]::SendMessage($mode,0x147,[IntPtr]::Zero,[IntPtr]::Zero).ToInt32() -ne 0) { throw 'Archive options must provide two choices with type selected' }
-    if ((Get-ControlText $mode) -notlike '*类型*') { throw 'Type archive choice lacks a readable label' }
-    [void][DiskCuratorGuiSmoke]::SendMessage($mode,0x14E,[IntPtr]1,[IntPtr]::Zero)
-    if ((Get-ControlText $mode) -notlike '*年月*') { throw 'Date archive choice lacks a readable label' }
-    Close-TestDialog $archiveDialog
-    Send-Action 5106
-    $policyDialog=Wait-Dialog 'DCFormNative' 'retention settings' '副本保留与内容核验设置' @(1,2,2000)
-    $number=[DiskCuratorGuiSmoke]::GetDlgItem($policyDialog,2000)
-    Set-ControlText $number '3abc'
-    [void][DiskCuratorGuiSmoke]::SendMessage($policyDialog,0x111,[IntPtr]1,[IntPtr]::Zero)
-    $feedback=[DiskCuratorGuiSmoke]::GetDlgItem($policyDialog,1999)
-    if ($feedback -eq [IntPtr]::Zero -or -not [DiskCuratorGuiSmoke]::HasVisibleStyle($feedback) -or
-        (Get-ControlText $feedback) -notlike '*整数*' -or (Get-ControlText $number) -cne '3abc') {
-        throw 'Invalid count must retain its input and explain the error in the same form'
-    }
-    Close-TestDialog $policyDialog
-    Write-Host 'PASS guided forms: archive mode has readable choices and retention errors keep the original input.'
-    # Request smart analysis explicitly from the same result workspace.
-    Send-Action 119
-    Wait-Lens 11 'explicit directory mapping analysis'
-    if ((Get-RowCount) -lt 3) { throw 'Structure analysis did not expose editable mappings' }
-    Send-Action 121
-    Wait-Lens 9 'directory mapping preview'
-    $unfilteredRows=Get-RowCount
-    if ($unfilteredRows -lt 3) { throw 'Structure preview is missing affected paths' }
-    Set-ControlText $search '不在预览内的文件'
-    Wait-Rows 0 'filtered structure preview'
-    Send-Action 121
-    Wait-Rows $unfilteredRows 'new plan in the same view must show all changes'
-    Wait-Lens 9 'regenerated preview'
-    if ((Get-ControlText $search) -ne '' -or [DiskCuratorGuiSmoke]::SendMessage($script:list,0x1027,[IntPtr]::Zero,[IntPtr]::Zero).ToInt64() -ne 0) {
-        throw 'Regenerating a plan must clear its filter and start the preview at row zero'
-    }
-    Save-TestWindow '03-preview.png'
-    if (Test-Path -LiteralPath (Join-Path $fixture '.DiskCurator-System')) { throw 'Read-only preview changed fixture files' }
-    if (-not (Test-Path -LiteralPath (Join-Path $folderA '甲.txt')) -or -not (Test-Path -LiteralPath (Join-Path $folderB '乙.txt'))) { throw 'Fixture data changed during observation' }
+    Wait-Until { (Get-SelectedCount) -eq 1 } 'select verified path for rename'
+    [void][DiskCuratorGuiSmoke]::PostMessage($script:list,0x0100,[IntPtr]0x71,[IntPtr]::Zero)
+    $rename=Wait-Dialog 'DCFormNative' 'F2 opens single file rename' '重命名文件' @(1,2,2000)
+    if ((Get-ControlText ([DiskCuratorGuiSmoke]::GetDlgItem($rename,2000))) -ne '甲.txt') { throw 'F2 did not identify the selected filename' }
+    Close-TestDialog $rename
+    Click 252
+    Wait-Until { (Text-At 115) -eq '' } 'clear verified file filter'
     if ($CacheUnavailable) {
-        if ((Get-ControlText $status) -notlike '*索引未持久化*内存结果可用*') { throw 'Cache warning lost after analysis/preview' }
-        Set-Lens 0
-        Wait-Rows 3 'usable memory results after cache failure'
-        if ((Get-ControlText $status) -notlike '*索引未持久化*') { throw 'Cache warning lost when switching perspective' }
-        Write-Host 'PASS cache failure: content remains usable; warning persists through exact verification, preview and perspective changes.'
+        if ((Shown-Text) -notlike '*索引*') { throw 'Unavailable index must remain visible with usable in-memory results' }
+    } else {
+        Click 278
+        $policy=Wait-Dialog 'DCFormNative' 'retention settings' '副本保留与内容核验设置' @(1,2,2000)
+        $number=[DiskCuratorGuiSmoke]::GetDlgItem($policy,2000)
+        if ((Get-ControlText $number) -ne '2') { throw 'Expected fresh two-copy retention' }
+        Set-ControlText $number '3abc'
+        Accept-Dialog $policy 1
+        Wait-Until { (Get-ControlText ([DiskCuratorGuiSmoke]::GetDlgItem($policy,1999))) -like '*整数*' } 'invalid count remains in the settings dialog'
+        Set-ControlText $number '1'
+        Accept-Dialog $policy 1
+        Wait-Until { [DiskCuratorGuiSmoke]::IsWindowEnabled($script:window) -and (Is-Visible 277) } 'eligible duplicate action'
+        Click 277
+        Wait-Until { Is-Visible 108 } 'preview with one eligible file'
+        Save-TestWindow '03-preview.png'
+        Click 108
+        $confirm=Wait-Dialog '#32770' 'review isolation' '确认执行操作计划' @(6,7) @('隔离仍占用磁盘空间')
+        $default=[DiskCuratorGuiSmoke]::SendMessage($confirm,0x0400,[IntPtr]::Zero,[IntPtr]::Zero).ToInt64() -band 0xffff
+        if ($default -ne 7) { throw 'The execution confirmation must default to No' }
+        Accept-Dialog $confirm 7
+        Wait-Until { [DiskCuratorGuiSmoke]::IsWindowEnabled($script:window) } 'cancelled isolation'
+        if ((Test-Path -LiteralPath (Join-Path $fixture '.DiskCurator-System')) -or -not (Test-Path -LiteralPath $file) -or -not (Test-Path -LiteralPath $twin)) { throw 'Declining an isolation modified the fixture' }
+        # Back out of the pending plan and rescan a fresh range.
     }
-    # Editing the manual scope invalidates even a previously frozen plan.
-    $apply=[DiskCuratorGuiSmoke]::GetDlgItem($script:window,108)
-    if (-not [DiskCuratorGuiSmoke]::IsWindowEnabled($apply)) { throw 'Preview did not enable apply' }
-    Set-ControlText $rootEdit $folderA
-    Set-ControlText $rootEdit $fixture
-    if ([DiskCuratorGuiSmoke]::IsWindowEnabled($apply)) { throw 'Changing scope left the old plan executable' }
+    Click-And-Home
+    Click 272
+    Wait-Until { (Is-Visible 100) -and (Is-Visible 274) } 'two independently editable backup directories'
+    # Cover exact matches, missing files on both sides, and differing content at the same relative path.
+    foreach($dir in @($folderA,$folderB)) { [IO.File]::WriteAllText((Join-Path $dir '相同.txt'),'equal') }
+    [IO.File]::WriteAllText((Join-Path $folderA '两个版本.txt'),'source version')
+    [IO.File]::WriteAllText((Join-Path $folderB '两个版本.txt'),'backup version')
+    Set-ControlText (Control 100) $folderA;Set-ControlText (Control 274) $folderB
+    Click 102
+    Wait-Until { (Is-Visible 114) -and (Is-Visible 277) -and (Get-RowCount) -ge 3 } 'backup differences and same-root preview action'
+    Check-Filter '两个版本.txt' 1
+    Click 252
+    Wait-Until { (Text-At 115) -eq '' } 'clear backup filter'
+    Click 277
+    Wait-Until { Is-Visible 108 } 'same-root copy preview'
+    if (Test-Path -LiteralPath (Join-Path $fixture '.DiskCurator-System')) { throw 'Read-only comparison or preview created a transaction' }
     if (-not $CacheUnavailable) {
-        Send-Action 121
-        Wait-Lens 9 'rebuilt preview after scope change'
-        Assert-Hidden @(249) 'already reviewing the plan'
-        Assert-Layout @(108) 'plan can be confirmed from its preview'
-        Set-Lens 0
-        Wait-Lens 0 'browse files while a complete plan is ready'
-        Assert-Hidden @(108) 'confirmation only belongs in preview'
-        Assert-Layout @(249) 'return to pending preview'
-        if ((Get-ControlText $script:stage) -notlike '*预览已就绪*') { throw 'File view mislabeled the pending preview' }
-        Send-Action 249
-        Wait-Lens 9 'reopen complete preview before confirming'
-        Send-Action 108
-        $dialog=Wait-Dialog '#32770' 'review fixture copy' '确认执行操作计划' @(6,7) @($fixture,'整理结果')
-        if ([DiskCuratorGuiSmoke]::SendMessage($script:lens,0x147,[IntPtr]::Zero,[IntPtr]::Zero).ToInt32() -ne 9) { throw 'Confirmation from another view must show the pending preview behind it' }
-        if ((Get-ControlText $rootEdit) -cne $fixture) { throw 'Unexpected fixture root during apply test' }
-        $yes=[DiskCuratorGuiSmoke]::GetDlgItem($dialog,6)
-        if ($yes -eq [IntPtr]::Zero) { throw 'Expected confirmation button missing' }
-        [void][DiskCuratorGuiSmoke]::PostMessage($dialog,0x0111,[IntPtr]6,$yes)
-        # Allow the confirmed dialog to finish dismissing before asserting that
-        # the copy and history transition open no additional success notice.
-        for ($i=0;$i -lt 100;$i++) {
-            if ([DiskCuratorGuiSmoke]::FindOwned([uint32]$script:process.Id,'#32770') -ne $dialog) { break }
-            Start-Sleep -Milliseconds 25
-        }
-        Wait-Lens 7 'history after fixture copy' 
-        $output=Join-Path $fixture '整理结果'
-        if (-not (Test-Path -LiteralPath $output -PathType Container)) { throw 'Confirmed plan did not create output folder' }
-        $copyHashes=@(Get-ChildItem -LiteralPath $output -File -Recurse | Get-FileHash | ForEach-Object { $_.Hash })
-        foreach ($source in @((Join-Path $folderA '甲.txt'),(Join-Path $folderB '乙.txt'),(Join-Path $fixture 'unique.bin'))) {
-            if ((Get-FileHash -LiteralPath $source).Hash -notin $copyHashes) { throw "Missing verified output content: $source" }
-        }
-        Set-Lens 0
-        Wait-Rows 3 'stale snapshot after fixture copy'
-        # Ordinary EN_SETFOCUS shall not dispatch an analysis command.
-        [void][DiskCuratorGuiSmoke]::PostMessage($script:window,0x111,[IntPtr]16777331,$search)
-        Wait-Ready 'browsing stale snapshot' 3
-        $selectionContext=[DiskCuratorGuiSmoke]::GetDlgItem($script:window,245)
-        if ((Get-ControlText $selectionContext) -notlike '*过期*') { throw 'Stale marker lost on perspective switch' }
-        foreach ($id in @(108,241,242)) {
-            if ([DiskCuratorGuiSmoke]::IsWindowEnabled([DiskCuratorGuiSmoke]::GetDlgItem($script:window,$id))) {
-                throw "Stale snapshot enabled mutation/analysis control $id"
-            }
-        }
-        Click-DuplicateShortcut '重复文件'
-        Wait-Lens 2 'read-only stale duplicate view'
-        Click-DuplicateShortcut '返回文件'
-        Wait-Lens 0 'return without verifying a stale snapshot'
-        Write-Host 'PASS fixture transaction: confirmed copy preserves sources, opens history, keeps snapshot stale and disables further operations.'
+        Click 108
+        $confirm=Wait-Dialog '#32770' 'copy into the backup' '确认执行操作计划' @(6,7)
+        Accept-Dialog $confirm 6
+        $expected=Join-Path $folderB '甲.txt'
+        Wait-Until { (Test-Path -LiteralPath $expected) -and (Get-RowCount) -ge 1 -and -not (Is-Visible 108) } 'copy finishes and opens the result record'
+        if ((Get-FileHash -LiteralPath $expected).Hash -ne (Get-FileHash -LiteralPath $file).Hash -or [IO.File]::ReadAllText((Join-Path $folderB '两个版本.txt')) -ne 'backup version') { throw 'Copy lost source content or overwrote a conflicting backup version' }
     }
-    Write-Host 'PASS Windows GUI: scope, result lenses, filter identity, scan progress, exact analysis, read-only preview and invalidation on changed root.' 
+    Click-And-Home
+    Start-FolderTask 250 $fixture
+    Wait-Until { (Is-Visible 114) -and (Get-RowCount) -ge 1 -and ((Shown-Text) -match '记录') } 'open history directly from home'
+    if (Is-Visible 277) { throw 'Copy-only or empty history offered to undo the copied files' }
+    Click-And-Home
+    $partial=Join-Path $fixture '读取异常'
+    [void][IO.Directory]::CreateDirectory($partial)
+    [IO.File]::WriteAllText((Join-Path $partial '可读.txt'),'complete')
+    $locked=[IO.File]::Open((Join-Path $partial '读取中.bin'),[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+    try {
+        $locked.WriteByte(73);$locked.Flush()
+        Start-FolderTask 271 $partial
+        Wait-Until { (Is-Visible 114) -and ((Shown-Text) -match '异常|不完整') } 'incomplete content scan remains labelled'
+        if ((Is-Visible 277) -or (Is-Visible 108)) { throw 'Incomplete observations offered automatic isolation' }
+    } finally { $locked.Dispose() }
+    Write-Host 'PASS task home, metadata-only space browsing, duplicate retention, filtering, preview, backup comparison, safe copy and recent operations.'
+
 }
 finally {
     if ($previousDpiContext -ne [IntPtr]::Zero) { [void][DiskCuratorGuiSmoke]::SetThreadDpiAwarenessContext($previousDpiContext) }

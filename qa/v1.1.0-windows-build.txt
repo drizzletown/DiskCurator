@@ -1,0 +1,82 @@
+适用于 .NET Framework MSBuild 版本 17.14.23+b0019275e
+
+适用于 .NET Framework MSBuild 版本 17.14.23+b0019275e
+
+  1>Checking Build System
+  Building Custom Rule <USERPROFILE>/Documents/DiskCurator/DiskCurator-v2.6/DiskCurator-Native/CMakeLists.txt
+  core.cpp
+  hash_index.cpp
+  observations.cpp
+  hash_actions.cpp
+  scoped_analysis.cpp
+  backup_task.cpp
+  photo_windows.cpp
+  正在生成代码...
+  diskcurator_core.vcxproj -> <USERPROFILE>\Documents\DiskCurator\DiskCurator-v2.6\DiskCurator-Native\build-release\Release\diskcurator_core.lib
+  Building Custom Rule <USERPROFILE>/Documents/DiskCurator/DiskCurator-v2.6/DiskCurator-Native/CMakeLists.txt
+  win_main.cpp
+  DiskCurator.vcxproj -> <USERPROFILE>\Documents\DiskCurator\DiskCurator-v2.6\DiskCurator-Native\build-release\Release\磁盘文件整理助手.exe
+  Building Custom Rule <USERPROFILE>/Documents/DiskCurator/DiskCurator-v2.6/DiskCurator-Native/CMakeLists.txt
+  test_assert_enabled.cpp
+  dc_assert_sanity.vcxproj -> <USERPROFILE>\Documents\DiskCurator\DiskCurator-v2.6\DiskCurator-Native\build-release\Release\dc_assert_sanity.exe
+  Building Custom Rule <USERPROFILE>/Documents/DiskCurator/DiskCurator-v2.6/DiskCurator-Native/CMakeLists.txt
+  test_backup_task.cpp
+  dc_backup_task_tests.vcxproj -> <USERPROFILE>\Documents\DiskCurator\DiskCurator-v2.6\DiskCurator-Native\build-release\Release\dc_backup_task_tests.exe
+  Building Custom Rule <USERPROFILE>/Documents/DiskCurator/DiskCurator-v2.6/DiskCurator-Native/CMakeLists.txt
+  perf_benchmark.cpp
+  dc_benchmark.vcxproj -> <USERPROFILE>\Documents\DiskCurator\DiskCurator-v2.6\DiskCurator-Native\build-release\Release\dc_benchmark.exe
+  Building Custom Rule <USERPROFILE>/Documents/DiskCurator/DiskCurator-v2.6/DiskCurator-Native/CMakeLists.txt
+  cli.cpp
+  dc_cli.vcxproj -> <USERPROFILE>\Documents\DiskCurator\DiskCurator-v2.6\DiskCurator-Native\build-release\Release\dc_cli.exe
+  Building Custom Rule <USERPROFILE>/Documents/DiskCurator/DiskCurator-v2.6/DiskCurator-Native/CMakeLists.txt
+  test_foundation.cpp
+  dc_foundation_tests.vcxproj -> <USERPROFILE>\Documents\DiskCurator\DiskCurator-v2.6\DiskCurator-Native\build-release\Release\dc_foundation_tests.exe
+  Building Custom Rule <USERPROFILE>/Documents/DiskCurator/DiskCurator-v2.6/DiskCurator-Native/CMakeLists.txt
+  test_hash_actions.cpp
+  dc_hash_actions_tests.vcxproj -> <USERPROFILE>\Documents\DiskCurator\DiskCurator-v2.6\DiskCurator-Native\build-release\Release\dc_hash_actions_tests.exe
+  Building Custom Rule <USERPROFILE>/Documents/DiskCurator/DiskCurator-v2.6/DiskCurator-Native/CMakeLists.txt
+  test_hash_policy.cpp
+  dc_hash_policy_tests.vcxproj -> <USERPROFILE>\Documents\DiskCurator\DiskCurator-v2.6\DiskCurator-Native\build-release\Release\dc_hash_policy_tests.exe
+  Building Custom Rule <USERPROFILE>/Documents/DiskCurator/DiskCurator-v2.6/DiskCurator-Native/CMakeLists.txt
+  test_merge.cpp
+  dc_merge_tests.vcxproj -> <USERPROFILE>\Documents\DiskCurator\DiskCurator-v2.6\DiskCurator-Native\build-release\Release\dc_merge_tests.exe
+  Building Custom Rule <USERPROFILE>/Documents/DiskCurator/DiskCurator-v2.6/DiskCurator-Native/CMakeLists.txt
+  test_observations.cpp
+  dc_observation_tests.vcxproj -> <USERPROFILE>\Documents\DiskCurator\DiskCurator-v2.6\DiskCurator-Native\build-release\Release\dc_observation_tests.exe
+  Building Custom Rule <USERPROFILE>/Documents/DiskCurator/DiskCurator-v2.6/DiskCurator-Native/CMakeLists.txt
+  test_recommend.cpp
+  dc_recommend_tests.vcxproj -> <USERPROFILE>\Documents\DiskCurator\DiskCurator-v2.6\DiskCurator-Native\build-release\Release\dc_recommend_tests.exe
+  Building Custom Rule <USERPROFILE>/Documents/DiskCurator/DiskCurator-v2.6/DiskCurator-Native/CMakeLists.txt
+  test_recovery.cpp
+  dc_recovery_tests.vcxproj -> <USERPROFILE>\Documents\DiskCurator\DiskCurator-v2.6\DiskCurator-Native\build-release\Release\dc_recovery_tests.exe
+  Building Custom Rule <USERPROFILE>/Documents/DiskCurator/DiskCurator-v2.6/DiskCurator-Native/CMakeLists.txt
+  test_scan_cancellation.cpp
+  dc_scan_cancel_tests.vcxproj -> <USERPROFILE>\Documents\DiskCurator\DiskCurator-v2.6\DiskCurator-Native\build-release\Release\dc_scan_cancel_tests.exe
+  Building Custom Rule <USERPROFILE>/Documents/DiskCurator/DiskCurator-v2.6/DiskCurator-Native/CMakeLists.txt
+  test_scan_progress.cpp
+  dc_scan_progress_tests.vcxproj -> <USERPROFILE>\Documents\DiskCurator\DiskCurator-v2.6\DiskCurator-Native\build-release\Release\dc_scan_progress_tests.exe
+  Building Custom Rule <USERPROFILE>/Documents/DiskCurator/DiskCurator-v2.6/DiskCurator-Native/CMakeLists.txt
+  test_scan_scope.cpp
+  dc_scope_tests.vcxproj -> <USERPROFILE>\Documents\DiskCurator\DiskCurator-v2.6\DiskCurator-Native\build-release\Release\dc_scope_tests.exe
+  Building Custom Rule <USERPROFILE>/Documents/DiskCurator/DiskCurator-v2.6/DiskCurator-Native/CMakeLists.txt
+  test_scoped_analysis.cpp
+  dc_scoped_analysis_tests.vcxproj -> <USERPROFILE>\Documents\DiskCurator\DiskCurator-v2.6\DiskCurator-Native\build-release\Release\dc_scoped_analysis_tests.exe
+  Building Custom Rule <USERPROFILE>/Documents/DiskCurator/DiskCurator-v2.6/DiskCurator-Native/CMakeLists.txt
+  test_stress.cpp
+  dc_stress_tests.vcxproj -> <USERPROFILE>\Documents\DiskCurator\DiskCurator-v2.6\DiskCurator-Native\build-release\Release\dc_stress_tests.exe
+  Building Custom Rule <USERPROFILE>/Documents/DiskCurator/DiskCurator-v2.6/DiskCurator-Native/CMakeLists.txt
+  test_structure.cpp
+  dc_structure_tests.vcxproj -> <USERPROFILE>\Documents\DiskCurator\DiskCurator-v2.6\DiskCurator-Native\build-release\Release\dc_structure_tests.exe
+  Building Custom Rule <USERPROFILE>/Documents/DiskCurator/DiskCurator-v2.6/DiskCurator-Native/CMakeLists.txt
+  test_core.cpp
+  dc_tests.vcxproj -> <USERPROFILE>\Documents\DiskCurator\DiskCurator-v2.6\DiskCurator-Native\build-release\Release\dc_tests.exe
+  Building Custom Rule <USERPROFILE>/Documents/DiskCurator/DiskCurator-v2.6/DiskCurator-Native/CMakeLists.txt
+  test_workflow.cpp
+  dc_workflow_tests.vcxproj -> <USERPROFILE>\Documents\DiskCurator\DiskCurator-v2.6\DiskCurator-Native\build-release\Release\dc_workflow_tests.exe
+
+适用于 .NET Framework MSBuild 版本 17.14.23+b0019275e
+
+  diskcurator_core.vcxproj -> <USERPROFILE>\Documents\DiskCurator\DiskCurator-v2.6\DiskCurator-Native\build-release\Release\diskcurator_core.lib
+  DiskCurator.vcxproj -> <USERPROFILE>\Documents\DiskCurator\DiskCurator-v2.6\DiskCurator-Native\build-release\Release\磁盘文件整理助手.exe
+
+Final validated GUI SHA-256: fad64620fbdab7fbc6102d90393608e9c4933e0b0bcc18488ba20c4e3d8925af
