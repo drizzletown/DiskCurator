@@ -1,0 +1,15 @@
+Test project /workspace/scratch/cd1b48cb0209/build-sanitize
+    Start 10: scan_observation_perspectives
+1/5 Test #10: scan_observation_perspectives .........   Passed    0.18 sec
+    Start 12: scan_progress_and_streaming_hash
+2/5 Test #12: scan_progress_and_streaming_hash ......   Passed    0.79 sec
+    Start 13: scan_hash_action_policy
+3/5 Test #13: scan_hash_action_policy ...............   Passed    0.21 sec
+    Start 14: scan_rollup_and_verification_cancel
+4/5 Test #14: scan_rollup_and_verification_cancel ...   Passed    0.03 sec
+    Start 15: selected_directory_pair_scope
+5/5 Test #15: selected_directory_pair_scope .........   Passed    0.03 sec
+
+100% tests passed out of 5
+
+Total Test time (real) =   1.23 sec

@@ -1,0 +1,58 @@
+PowerShell parser check passed: 7 scripts.
+PowerShell encoding check passed: non-ASCII scripts have valid UTF-8 BOM.
+DiskCurator source distribution complete: 50 required files.
+DiskCurator.exe contains RT_MANIFEST #1 with longPathAware=true and dpiAware=true.
+Test project <USERPROFILE>/Documents/DiskCurator/DiskCurator-v2.6/DiskCurator-Native/build-win
+      Start  1: core
+ 1/16 Test  #1: core ...................................   Passed    0.95 sec
+      Start  2: recovery_fault_injection
+ 2/16 Test  #2: recovery_fault_injection ...............   Passed    0.66 sec
+      Start  3: directory_stress
+ 3/16 Test  #3: directory_stress .......................   Passed   24.07 sec
+      Start  4: merge_and_two_copy_retention
+ 4/16 Test  #4: merge_and_two_copy_retention ...........   Passed    0.61 sec
+      Start  5: read_only_merge_recommendations
+ 5/16 Test  #5: read_only_merge_recommendations ........   Passed    0.74 sec
+      Start  6: integrated_workspace_workflow
+ 6/16 Test  #6: integrated_workspace_workflow ..........   Passed    0.64 sec
+      Start  7: suggested_directory_structure
+ 7/16 Test  #7: suggested_directory_structure ..........   Passed    0.86 sec
+      Start  8: manual_foundation_and_directory_pair
+ 8/16 Test  #8: manual_foundation_and_directory_pair ...   Passed    0.71 sec
+      Start  9: complete_sha256_and_retention_policy
+ 9/16 Test  #9: complete_sha256_and_retention_policy ...   Passed    0.94 sec
+      Start 10: scan_observation_perspectives
+10/16 Test #10: scan_observation_perspectives ..........   Passed    0.34 sec
+      Start 11: full_disk_and_manual_scope
+11/16 Test #11: full_disk_and_manual_scope .............   Passed    0.31 sec
+      Start 12: scan_progress_and_streaming_hash
+12/16 Test #12: scan_progress_and_streaming_hash .......   Passed    0.66 sec
+      Start 13: scan_hash_action_policy
+13/16 Test #13: scan_hash_action_policy ................   Passed    0.85 sec
+      Start 14: scan_rollup_and_verification_cancel
+14/16 Test #14: scan_rollup_and_verification_cancel ....   Passed    0.35 sec
+      Start 15: selected_directory_pair_scope
+15/16 Test #15: selected_directory_pair_scope ..........   Passed    0.54 sec
+      Start 16: release_assertions_active
+16/16 Test #16: release_assertions_active ..............   Passed    0.27 sec
+
+100% tests passed, 0 tests failed out of 16
+
+Total Test time (real) =  33.56 sec
+PASS Windows smoke: Chinese paths, exact files/folders, rename/undo, two-copy quarantine/undo, additive merge, structure build, scoped two-external-keeper retirement, WIC dHash, date archive/undo
+PASS Windows policy smoke: SHA256 all, keep 1/3/0-consent, fast-mode dry run
+Result workspace control missing/not visible: 100
+At <USERPROFILE>\Documents\DiskCurator\DiskCurator-v2.6\DiskCurator-Native\scripts\smoke_gui_windows.ps1:129 char:102
++ ... control)) { throw "Result workspace control missing/not visible: $id" ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : OperationStopped: (Result workspac...ot visible: 100:String) [], RuntimeException
+    + FullyQualifiedErrorId : Result workspace control missing/not visible: 100
+ 
+Windows smoke gate smoke_gui_windows.ps1 failed (1)
+At <USERPROFILE>\Documents\DiskCurator\DiskCurator-v2.6\DiskCurator-Native\scripts\mark_windows_validation.ps1:30 char:3
+0
++ ... DE -ne 0) { throw "Windows smoke gate $script failed ($LASTEXITCODE)" ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : OperationStopped: (Windows smoke g....ps1 failed (1):String) [], RuntimeException
+    + FullyQualifiedErrorId : Windows smoke gate smoke_gui_windows.ps1 failed (1)
+ 

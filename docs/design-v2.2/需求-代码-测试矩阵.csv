@@ -1,0 +1,21 @@
+需求ID,实现位置,测试证据,状态
+FR-101,src/core.cpp scan,tests/test_core.cpp,旧核心Linux通过_Windows待验收
+FR-102,src/hash_index.cpp scan_hashed,tests/test_hash_policy.cpp,新实现Linux通过_Windows待验收
+FR-103,src/core.cpp plan_quarantine_selected,tests/test_foundation.cpp + test_hash_policy.cpp,新策略Linux通过
+FR-104,src/core.cpp duplicate_dirs plan_retire_directory,tests/test_core.cpp + test_workflow.cpp,新策略Linux通过
+FR-105,src/core.cpp find_overlapping_dirs,tests/test_foundation.cpp,旧核心Linux通过
+FR-106,src/core.cpp evaluate_directory_pair plan_merge_dirs,tests/test_foundation.cpp + test_merge.cpp,旧核心Linux通过
+FR-107,src/core.cpp plan_rename plan_archive,tests/test_core.cpp + test_workflow.cpp,旧核心Linux通过
+FR-108,src/core.hpp RetentionPolicy + src/win_main.cpp ask_retention + src/cli.cpp,tests/test_hash_policy.cpp,新实现Linux通过_WindowsGUI待验收
+FR-109,src/core.cpp plan_retire_directory,tests/test_hash_policy.cpp + test_workflow.cpp,新策略Linux通过
+FR-110,src/core.cpp execute_plan recover_incomplete,tests/test_recovery.cpp + test_hash_policy.cpp,可移植核心Linux通过
+FR-201,src/core.cpp plan_merge_dirs,tests/test_merge.cpp,旧核心Linux通过
+FR-202,src/core.cpp suggest_structure,tests/test_structure.cpp,旧核心Linux通过
+FR-203,src/core.cpp plan_structure,tests/test_structure.cpp,旧核心Linux通过
+FR-204,src/core.cpp execute_structure_plan + plan_retire_directory,tests/test_structure.cpp + test_workflow.cpp,可移植核心Linux通过
+BR-03,src/core.hpp Plan.retention + src/core.cpp dynamic keepers,tests/test_hash_policy.cpp,新实现Linux通过
+BR-05,src/core.cpp check_retention + GUI risk consent,tests/test_hash_policy.cpp,新实现Linux通过_GUI待验收
+BR-06,src/core.cpp execute_plan selected verification mode,tests/test_hash_policy.cpp,新实现Linux通过_GUI待验收
+NFR-02,src/hash_index.cpp background scan_hashed + src/win_main.cpp Worker,tests/test_hash_policy.cpp,核心Linux通过_性能待验收
+NFR-03,src/hash_index.cpp save_index,tests/test_hash_policy.cpp,核心Linux通过_缓存质量待验收
+NFR-05,scripts/build_windows.bat,Windows CTest+smoke,新版本待验收

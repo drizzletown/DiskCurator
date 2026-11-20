@@ -1,0 +1,87 @@
+{
+  "environment": "Linux-6.18.57-x86_64-with-glibc2.41",
+  "compiler": "g++ 14.2.0",
+  "flags": "-std=c++17 -O2 -pthread",
+  "scope": "Linux portable SHA256; warm OS cache; not a Windows CNG or external-HDD throughput measurement",
+  "method": "5 alternating paired rounds per fixture; original release hotfix1 versus updated scan; reused I/O buffer and direct full-block portable SHA input",
+  "fixtures": {
+    "small": {
+      "files": 20000,
+      "bytes": 5140000,
+      "wall_seconds": {
+        "before": [
+          1.48922,
+          0.412509,
+          0.521073,
+          0.448241,
+          0.481405
+        ],
+        "after": [
+          0.358647,
+          0.408393,
+          0.500292,
+          0.404526,
+          0.315251
+        ]
+      },
+      "cpu_seconds": {
+        "before": [
+          0.814626,
+          0.41493199999999997,
+          0.523963,
+          0.45053900000000047,
+          0.4841689999999996
+        ],
+        "after": [
+          0.3657729999999998,
+          0.4114340000000001,
+          0.4955479999999999,
+          0.4074209999999998,
+          0.3179109999999996
+        ]
+      },
+      "median_before_seconds": 0.481405,
+      "median_after_seconds": 0.404526,
+      "median_reduction_percent": 15.97
+    },
+    "large": {
+      "files": 1,
+      "bytes": 67108864,
+      "wall_seconds": {
+        "before": [
+          0.354513,
+          0.230189,
+          0.23282,
+          0.23585,
+          0.275736
+        ],
+        "after": [
+          0.266321,
+          0.24051,
+          0.226395,
+          0.23799,
+          0.334931
+        ]
+      },
+      "cpu_seconds": {
+        "before": [
+          0.3412130000000002,
+          0.23204899999999995,
+          0.23468800000000023,
+          0.23780199999999985,
+          0.2675709999999998
+        ],
+        "after": [
+          0.2702619999999998,
+          0.24329899999999993,
+          0.22821300000000067,
+          0.2398759999999993,
+          0.34049700000000005
+        ]
+      },
+      "median_before_seconds": 0.23585,
+      "median_after_seconds": 0.24051,
+      "median_reduction_percent": -1.98
+    }
+  }
+}

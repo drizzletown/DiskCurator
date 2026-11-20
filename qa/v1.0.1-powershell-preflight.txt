@@ -1,0 +1,7 @@
+Environment: Linux, PowerShell 7.4.19. Parsing/encoding/layout check only; not Windows PowerShell 5.1 runtime or GUI execution.
+
+PowerShell parser check passed: 7 scripts.
+PowerShell encoding check passed: non-ASCII scripts have valid UTF-8 BOM.
+DiskCurator source distribution complete: 50 required files.
+
+Exit code: 0

@@ -1,0 +1,17 @@
+/build/
+/build-debug/
+/build-win/
+/out/
+.vs/
+.idea/
+*.user
+*.suo
+*.obj
+*.pdb
+*.ilk
+.DiskCurator-System/
+
+/build-warning/
+/dist/
+
+/build-release/

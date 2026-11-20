@@ -1,0 +1,60 @@
+﻿需求ID,唯一业务归属,当前代码API/位置,现有测试/建议回归,实现及验收状态,发布Gate,备注
+FR-001,A 扫描,scan,test_core;test_stress;smoke_windows,已编码；rc6 Windows CTest/CLI 有覆盖,G0-02/G0-03/G3-02,源码/脚本存在不等于该需求完全验收
+FR-002,A 空间筛选,scan;extension_category;Win32 list filtering,test_core;smoke_gui_windows,已编码；rc7 GUI 筛选待复测,G0-04/G3-04,源码/脚本存在不等于该需求完全验收
+FR-003,B 精确重复,deduplicate,test_core;test_merge;smoke_windows,已编码；rc6 Windows CTest/CLI 有覆盖,G1-01/G2-01,源码/脚本存在不等于该需求完全验收
+FR-004,B 精确重复目录,duplicate_dirs,test_core;smoke_windows,已编码；rc6 Windows CTest/CLI 有覆盖,G1-01,源码/脚本存在不等于该需求完全验收
+FR-005,D 批量改名,plan_rename;execute_plan;undo_latest,test_core;test_stress;smoke_windows,已编码；rc6 Windows CLI 有覆盖,G0-03/G2-02,源码/脚本存在不等于该需求完全验收
+FR-101,B 目录比较,compare_dirs;directory_relations,test_core;test_recommend;smoke_windows,已编码；专项实盘待验收,G1-01/G1-02,源码/脚本存在不等于该需求完全验收
+FR-102,C 融合推荐,recommend_merges,test_recommend;smoke_gui_windows,已编码；rc7 GUI 端到端待验收,G1-02/G0-04,源码/脚本存在不等于该需求完全验收
+FR-103,D 非破坏融合,plan_merge_dirs;execute_merge_plan,test_merge;test_workflow;smoke_windows,已编码；rc6 Windows CLI 有覆盖,G1-02/G2-02,源码/脚本存在不等于该需求完全验收
+FR-104,C 结构建议,suggest_structure,test_structure;test_workflow;smoke_gui_windows,已编码；UI 人工质量待验收,G1-03/G0-04,源码/脚本存在不等于该需求完全验收
+FR-105,C 映射编辑,StructureRule;StructureFileRule;plan_structure;win_main,test_structure;test_workflow;smoke_gui_windows,已编码；交互待验收,G1-03/G3-04,源码/脚本存在不等于该需求完全验收
+FR-106,C 来源映射,StructureMapping;StructurePlan,test_structure;test_workflow,已编码；完整结果报告待验收,G1-03,源码/脚本存在不等于该需求完全验收
+FR-107,D 构建新结构,plan_structure;execute_structure_plan,test_structure;test_workflow;smoke_windows,已编码；rc6 Windows CLI 有覆盖,G1-03/G2-02,源码/脚本存在不等于该需求完全验收
+FR-108,D/E 定向清退,plan_retire_directory;execute_plan,test_workflow;test_merge;smoke_windows,已编码；NTFS 边界专项待验收,G2-01/G2-02,源码/脚本存在不等于该需求完全验收
+FR-109,E 恢复撤销历史,recover_incomplete;undo_latest;history,test_recovery;test_core;smoke_windows,已编码；断电/USB 实测不足,G2-02/G3-03,源码/脚本存在不等于该需求完全验收
+FR-110,B/E 备份安全,backup_safety;plan_clean_duplicates,test_core;test_merge;smoke_windows,已编码；物理设备独立性不在范围,G2-01,源码/脚本存在不等于该需求完全验收
+FR-111,A/C 导出,csv_quote;Win32 export,smoke_gui_windows,已编码；报告完整性专项待验收,G0-04/G1-03,源码/脚本存在不等于该需求完全验收
+FR-201,B 图片相似,probe_photo;similar_photos;photo_windows,test_core;smoke_windows,已编码；rc6 WIC 基本烟雾通过，真实照片集待验收,G3-01,源码/脚本存在不等于该需求完全验收
+FR-202,D 归档,plan_archive;execute_plan;undo_latest,test_core;test_stress;smoke_windows,已编码；rc6 CLI 有覆盖,G0-03/G2-02,源码/脚本存在不等于该需求完全验收
+UX-001,三层交互,win_main.cpp,smoke_gui_windows;Windows UI 人工测试,rc7 已编码部分三层导航；GUI 完整复测待完成,G0-04/G3-04,五组基础视图导航等仍属目标改进
+UX-002,三层交互,win_main.cpp,smoke_gui_windows;Windows UI 人工测试,rc7 已编码部分三层导航；GUI 完整复测待完成,G0-04/G3-04,五组基础视图导航等仍属目标改进
+UX-003,三层交互,win_main.cpp,smoke_gui_windows;Windows UI 人工测试,rc7 已编码部分三层导航；GUI 完整复测待完成,G0-04/G3-04,五组基础视图导航等仍属目标改进
+UX-004,三层交互,win_main.cpp,smoke_gui_windows;Windows UI 人工测试,rc7 已编码部分三层导航；GUI 完整复测待完成,G0-04/G3-04,五组基础视图导航等仍属目标改进
+UX-005,三层交互,win_main.cpp,smoke_gui_windows;Windows UI 人工测试,rc7 已编码部分三层导航；GUI 完整复测待完成,G0-04/G3-04,五组基础视图导航等仍属目标改进
+UX-006,三层交互,win_main.cpp,smoke_gui_windows;Windows UI 人工测试,rc7 已编码部分三层导航；GUI 完整复测待完成,G0-04/G3-04,五组基础视图导航等仍属目标改进
+UX-007,三层交互,win_main.cpp,smoke_gui_windows;Windows UI 人工测试,rc7 已编码部分三层导航；GUI 完整复测待完成,G0-04/G3-04,五组基础视图导航等仍属目标改进
+UX-008,三层交互,win_main.cpp,smoke_gui_windows;Windows UI 人工测试,rc7 已编码部分三层导航；GUI 完整复测待完成,G0-04/G3-04,五组基础视图导航等仍属目标改进
+UX-009,三层交互,win_main.cpp,smoke_gui_windows;Windows UI 人工测试,rc7 已编码部分三层导航；GUI 完整复测待完成,G0-04/G3-04,五组基础视图导航等仍属目标改进
+BR-01,安全不变量,core.cpp;core.hpp,test_core;test_merge;test_recovery;test_structure;test_workflow,已有部分自动覆盖；设备/NTFS 边界待专项验证,G1-01/G2-01/G2-02/G2-03,按 03/06 条款逐项设计反例
+BR-02,安全不变量,core.cpp;core.hpp,test_core;test_merge;test_recovery;test_structure;test_workflow,已有部分自动覆盖；设备/NTFS 边界待专项验证,G1-01/G2-01/G2-02/G2-03,按 03/06 条款逐项设计反例
+BR-03,安全不变量,core.cpp;core.hpp,test_core;test_merge;test_recovery;test_structure;test_workflow,已有部分自动覆盖；设备/NTFS 边界待专项验证,G1-01/G2-01/G2-02/G2-03,按 03/06 条款逐项设计反例
+BR-04,安全不变量,core.cpp;core.hpp,test_core;test_merge;test_recovery;test_structure;test_workflow,已有部分自动覆盖；设备/NTFS 边界待专项验证,G1-01/G2-01/G2-02/G2-03,按 03/06 条款逐项设计反例
+BR-05,安全不变量,core.cpp;core.hpp,test_core;test_merge;test_recovery;test_structure;test_workflow,已有部分自动覆盖；设备/NTFS 边界待专项验证,G1-01/G2-01/G2-02/G2-03,按 03/06 条款逐项设计反例
+BR-06,安全不变量,core.cpp;core.hpp,test_core;test_merge;test_recovery;test_structure;test_workflow,已有部分自动覆盖；设备/NTFS 边界待专项验证,G1-01/G2-01/G2-02/G2-03,按 03/06 条款逐项设计反例
+BR-07,安全不变量,core.cpp;core.hpp,test_core;test_merge;test_recovery;test_structure;test_workflow,已有部分自动覆盖；设备/NTFS 边界待专项验证,G1-01/G2-01/G2-02/G2-03,按 03/06 条款逐项设计反例
+BR-08,安全不变量,core.cpp;core.hpp,test_core;test_merge;test_recovery;test_structure;test_workflow,已有部分自动覆盖；设备/NTFS 边界待专项验证,G1-01/G2-01/G2-02/G2-03,按 03/06 条款逐项设计反例
+BR-09,安全不变量,core.cpp;core.hpp,test_core;test_merge;test_recovery;test_structure;test_workflow,已有部分自动覆盖；设备/NTFS 边界待专项验证,G1-01/G2-01/G2-02/G2-03,按 03/06 条款逐项设计反例
+BR-10,安全不变量,core.cpp;core.hpp,test_core;test_merge;test_recovery;test_structure;test_workflow,已有部分自动覆盖；设备/NTFS 边界待专项验证,G1-01/G2-01/G2-02/G2-03,按 03/06 条款逐项设计反例
+BR-11,安全不变量,core.cpp;core.hpp,test_core;test_merge;test_recovery;test_structure;test_workflow,已有部分自动覆盖；设备/NTFS 边界待专项验证,G1-01/G2-01/G2-02/G2-03,按 03/06 条款逐项设计反例
+BR-12,安全不变量,core.cpp;core.hpp,test_core;test_merge;test_recovery;test_structure;test_workflow,已有部分自动覆盖；设备/NTFS 边界待专项验证,G1-01/G2-01/G2-02/G2-03,按 03/06 条款逐项设计反例
+NFR-01,非功能/工程,CMakeLists.txt;scripts;win_main.cpp,build_windows;CTest;smoke_windows;smoke_gui_windows,依所选环境/版本单独取证,G0/G3,通过条件见 03/08 文档
+NFR-02,非功能/工程,CMakeLists.txt;scripts;win_main.cpp,build_windows;CTest;smoke_windows;smoke_gui_windows,依所选环境/版本单独取证,G0/G3,通过条件见 03/08 文档
+NFR-03,非功能/工程,CMakeLists.txt;scripts;win_main.cpp,build_windows;CTest;smoke_windows;smoke_gui_windows,依所选环境/版本单独取证,G0/G3,通过条件见 03/08 文档
+NFR-04,非功能/工程,CMakeLists.txt;scripts;win_main.cpp,build_windows;CTest;smoke_windows;smoke_gui_windows,依所选环境/版本单独取证,G0/G3,通过条件见 03/08 文档
+NFR-05,非功能/工程,CMakeLists.txt;scripts;win_main.cpp,build_windows;CTest;smoke_windows;smoke_gui_windows,依所选环境/版本单独取证,G0/G3,通过条件见 03/08 文档
+NFR-06,非功能/工程,CMakeLists.txt;scripts;win_main.cpp,build_windows;CTest;smoke_windows;smoke_gui_windows,依所选环境/版本单独取证,G0/G3,通过条件见 03/08 文档
+NFR-07,非功能/工程,CMakeLists.txt;scripts;win_main.cpp,build_windows;CTest;smoke_windows;smoke_gui_windows,依所选环境/版本单独取证,G0/G3,通过条件见 03/08 文档
+NFR-08,非功能/工程,CMakeLists.txt;scripts;win_main.cpp,build_windows;CTest;smoke_windows;smoke_gui_windows,依所选环境/版本单独取证,G0/G3,通过条件见 03/08 文档
+BF-REQ-01,基础能力补充需求,src/win_main.cpp 基础视图导航,GUI 人工基础闭环,待 Windows 验收,,
+BF-REQ-02,基础能力补充需求,src/core.cpp: plan_quarantine_selected; src/win_main.cpp: do_manual_quarantine,tests/test_foundation.cpp,Linux PASS / Windows 待验收,,
+BF-REQ-03,基础能力补充需求,src/core.cpp: plan_quarantine_selected / execute_plan,tests/test_foundation.cpp 硬链接/过期/过选,Linux PASS / Windows 待验收,,
+BF-REQ-04,基础能力补充需求,src/core.cpp: plan_retire_directory; src/win_main.cpp: do_manual_duplicate_dir,tests/test_workflow.cpp; Windows GUI 手动,已有核心 PASS / 新 UI 待验收,,
+BF-REQ-05,基础能力补充需求,src/core.cpp: find_overlapping_dirs,tests/test_foundation.cpp 嵌套/截断,Linux PASS / Windows 待验收,,
+BF-REQ-06,基础能力补充需求,src/core.cpp: evaluate_directory_pair,tests/test_foundation.cpp 反向/空目录,Linux PASS / Windows 待验收,,
+BF-REQ-07,基础能力补充需求,src/core.cpp: plan_merge_dirs; src/win_main.cpp: do_pair_assess,tests/test_merge.cpp; Windows smoke,已有核心 PASS / 新 UI 待验收,,
+BF-REQ-08,基础能力补充需求,src/core.cpp: compare_dirs / evaluate_directory_pair,tests/test_foundation.cpp 精确树反例,Linux PASS,,
+BF-REQ-09,基础能力补充需求,src/core.cpp: execute_plan / execute_merge_plan,tests/test_recovery.cpp,Linux PASS / Windows 待验收,,
+BF-REQ-10,基础能力补充需求,暂无通用独立复制/移动 API,待增测试,未实现,,
+BF-REQ-11,基础能力补充需求,src/core.cpp: plan_merge_dirs(部分),待增加 S2/S3 测试,部分实现,,
+BF-REQ-12,基础能力补充需求,src/win_main.cpp: LVS_OWNERDATA 可多选,GUI 手动键盘/列宽/DPI,部分实现／待验收,,

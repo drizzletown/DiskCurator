@@ -1,0 +1,31 @@
+name: Build, test, and package Windows native
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate source layout
+        run: ./scripts/check_source_layout.ps1
+      - name: Configure C++17 / Win32 x64
+        run: cmake -S . -B build-win -G "Visual Studio 17 2022" -A x64 -DDC_BUILD_TESTS=ON -DDC_BUILD_PERF_TOOLS=ON
+      - name: Build Release (/MT runtime)
+        run: cmake --build build-win --config Release --parallel
+      - name: Run all Windows release gates and seal validation receipt
+        run: ./scripts/mark_windows_validation.ps1
+      - name: Create portable Win64 release archive
+        run: ./scripts/package_release.ps1
+      - name: Upload Win64 portable ZIP and checksum
+        uses: actions/upload-artifact@v4
+        with:
+          name: DiskCurator-Native-Win64
+          path: |
+            dist/DiskCurator-Native-v*-Win64.zip
+            dist/DiskCurator-Native-v*-Win64.zip.sha256
+          if-no-files-found: error

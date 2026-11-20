@@ -1,0 +1,29 @@
+Windows x64 CROSS compilation and link on Linux with MinGW GCC 14.2.
+Native MSVC build, Windows runtime, CNG runtime and GUI smoke were NOT executed.
+Includes native GUI, resources/manifest, CLI, diagnostic tool and all 16 CTest executables.
+Source win_main.cpp SHA256: 890604fa1bd436c9fb29ace12156d27d5b9fd2d4ccf7f11bc7849d3858589d27
+
+[  4%] Built target dc_assert_sanity
+[ 19%] Built target diskcurator_core
+[ 23%] Built target dc_cli
+[ 28%] Built target dc_benchmark
+[ 30%] Building CXX object CMakeFiles/DiskCurator.dir/src/win_main.cpp.obj
+[ 34%] Built target dc_tests
+[ 39%] Built target dc_recovery_tests
+[ 43%] Built target dc_stress_tests
+[ 47%] Built target dc_merge_tests
+[ 52%] Built target dc_recommend_tests
+[ 56%] Built target dc_workflow_tests
+[ 60%] Built target dc_structure_tests
+[ 65%] Built target dc_foundation_tests
+[ 69%] Built target dc_hash_policy_tests
+[ 73%] Built target dc_observation_tests
+[ 78%] Built target dc_scope_tests
+[ 82%] Built target dc_scan_progress_tests
+[ 86%] Built target dc_hash_actions_tests
+[ 91%] Built target dc_scan_cancel_tests
+[ 95%] Built target dc_scoped_analysis_tests
+[ 97%] Linking CXX executable DiskCurator.exe
+[100%] Built target DiskCurator
+
+Exit code: 0

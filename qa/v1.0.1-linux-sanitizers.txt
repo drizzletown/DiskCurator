@@ -1,0 +1,43 @@
+Test project /workspace/scratch/cd1b48cb0209/build-sanitize
+    Start 10: scan_observation_perspectives
+1/5 Test #10: scan_observation_perspectives .........***Failed    0.13 sec
+==5==LeakSanitizer has encountered a fatal error.
+==5==HINT: For debugging, try setting environment variable LSAN_OPTIONS=verbosity=1:log_threads=1
+==5==HINT: LeakSanitizer does not work under ptrace (strace, gdb, etc)
+
+    Start 12: scan_progress_and_streaming_hash
+2/5 Test #12: scan_progress_and_streaming_hash ......***Failed    0.84 sec
+==7==LeakSanitizer has encountered a fatal error.
+==7==HINT: For debugging, try setting environment variable LSAN_OPTIONS=verbosity=1:log_threads=1
+==7==HINT: LeakSanitizer does not work under ptrace (strace, gdb, etc)
+
+    Start 13: scan_hash_action_policy
+3/5 Test #13: scan_hash_action_policy ...............***Failed    0.21 sec
+==9==LeakSanitizer has encountered a fatal error.
+==9==HINT: For debugging, try setting environment variable LSAN_OPTIONS=verbosity=1:log_threads=1
+==9==HINT: LeakSanitizer does not work under ptrace (strace, gdb, etc)
+
+    Start 14: scan_rollup_and_verification_cancel
+4/5 Test #14: scan_rollup_and_verification_cancel ...***Failed    0.14 sec
+==11==LeakSanitizer has encountered a fatal error.
+==11==HINT: For debugging, try setting environment variable LSAN_OPTIONS=verbosity=1:log_threads=1
+==11==HINT: LeakSanitizer does not work under ptrace (strace, gdb, etc)
+
+    Start 15: selected_directory_pair_scope
+5/5 Test #15: selected_directory_pair_scope .........***Failed    0.04 sec
+==13==LeakSanitizer has encountered a fatal error.
+==13==HINT: For debugging, try setting environment variable LSAN_OPTIONS=verbosity=1:log_threads=1
+==13==HINT: LeakSanitizer does not work under ptrace (strace, gdb, etc)
+
+
+0% tests passed, 5 tests failed out of 5
+
+Total Test time (real) =   1.37 sec
+
+The following tests FAILED:
+	 10 - scan_observation_perspectives (Failed)
+	 12 - scan_progress_and_streaming_hash (Failed)
+	 13 - scan_hash_action_policy (Failed)
+	 14 - scan_rollup_and_verification_cancel (Failed)
+	 15 - selected_directory_pair_scope (Failed)
+Errors while running CTest

@@ -1,0 +1,23 @@
+{
+  "version": "1.0.1",
+  "date": "2026-11-20",
+  "baseline_archive": "DiskCurator-Native-v1.0.0-source-hotfix1.zip",
+  "baseline_sha256": "4f2534ca968d8d5daae0ed75331b0620c46d9c03157f8d0438620d243f3bce56",
+  "source_archive": "DiskCurator-Native-v1.0.1-results-progress-source.zip",
+  "patch_archive": "DiskCurator-Native-v1.0.0-hotfix1-to-v1.0.1-patch.zip",
+  "archive_root": "DiskCurator-Native/",
+  "checks": {
+    "baseline_zip_crc": "PASS",
+    "no_deleted_baseline_paths": "PASS",
+    "patch_overlay_matches_full_source_bytes": "PASS",
+    "powershell_utf8_bom_for_non_ascii_scripts": "PASS",
+    "no_compiled_binaries_or_build_output": "PASS",
+    "final_zip_crc_and_per_file_manifest": "Checked by packaging script before delivery"
+  },
+  "notes": [
+    "Full source and patch are verified after writing against the same final byte map.",
+    "The internal SHA256-SOURCE-FILES.txt covers every source file except itself.",
+    "External ZIP digests are in DiskCurator-Native-v1.0.1-SHA256SUMS.txt to avoid a self-referential archive hash.",
+    "No native Windows executable is included; Windows runtime gates remain required."
+  ]
+}

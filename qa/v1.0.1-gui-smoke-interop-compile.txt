@@ -1,0 +1,4 @@
+Environment: Linux / PowerShell 7.4.19. Compile-only check of GUI smoke embedded C#; no Win32 runtime.
+GUI smoke C# interop compiled; user32 calls were NOT executed.
+
+Exit code: 0

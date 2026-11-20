@@ -1,0 +1,30 @@
+Internal ctest changing into directory: /mnt/data/dc_v1_release/build-release
+Test project /mnt/data/dc_v1_release/build-release
+      Start  3: directory_stress
+      Start  1: core
+ 1/12 Test  #1: core ...................................   Passed    0.09 sec
+      Start  9: complete_sha256_and_retention_policy
+ 2/12 Test  #9: complete_sha256_and_retention_policy ...   Passed    0.11 sec
+      Start  7: suggested_directory_structure
+ 3/12 Test  #7: suggested_directory_structure ..........   Passed    0.06 sec
+      Start  4: merge_and_two_copy_retention
+ 4/12 Test  #4: merge_and_two_copy_retention ...........   Passed    0.05 sec
+      Start  5: read_only_merge_recommendations
+ 5/12 Test  #5: read_only_merge_recommendations ........   Passed    0.04 sec
+      Start  6: integrated_workspace_workflow
+ 6/12 Test  #6: integrated_workspace_workflow ..........   Passed    0.05 sec
+      Start  2: recovery_fault_injection
+ 7/12 Test  #2: recovery_fault_injection ...............   Passed    0.06 sec
+      Start  8: manual_foundation_and_directory_pair
+ 8/12 Test  #8: manual_foundation_and_directory_pair ...   Passed    0.04 sec
+      Start 10: scan_observation_perspectives
+ 9/12 Test #10: scan_observation_perspectives ..........   Passed    0.01 sec
+      Start 11: full_disk_and_manual_scope
+10/12 Test #11: full_disk_and_manual_scope .............   Passed    0.01 sec
+      Start 12: release_assertions_active
+11/12 Test #12: release_assertions_active ..............   Passed    0.00 sec
+12/12 Test  #3: directory_stress .......................   Passed    1.47 sec
+
+100% tests passed, 0 tests failed out of 12
+
+Total Test time (real) =   1.47 sec

@@ -1,0 +1,20 @@
+Internal ctest changing into directory: /mnt/data/DiskCurator-v1.0-rc1/build
+Test project /mnt/data/DiskCurator-v1.0-rc1/build
+    Start 1: core
+1/7 Test #1: core ..............................   Passed    0.08 sec
+    Start 2: recovery_fault_injection
+2/7 Test #2: recovery_fault_injection ..........   Passed    0.04 sec
+    Start 3: directory_stress
+3/7 Test #3: directory_stress ..................   Passed    1.61 sec
+    Start 4: merge_and_two_copy_retention
+4/7 Test #4: merge_and_two_copy_retention ......   Passed    0.04 sec
+    Start 5: read_only_merge_recommendations
+5/7 Test #5: read_only_merge_recommendations ...   Passed    0.03 sec
+    Start 6: integrated_workspace_workflow
+6/7 Test #6: integrated_workspace_workflow .....   Passed    0.03 sec
+    Start 7: suggested_directory_structure
+7/7 Test #7: suggested_directory_structure .....   Passed    0.08 sec
+
+100% tests passed, 0 tests failed out of 7
+
+Total Test time (real) =   1.91 sec

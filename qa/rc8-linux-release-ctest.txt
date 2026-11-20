@@ -1,0 +1,22 @@
+Internal ctest changing into directory: /mnt/data/dc_next/build
+Test project /mnt/data/dc_next/build
+    Start 3: directory_stress
+    Start 1: core
+    Start 7: suggested_directory_structure
+    Start 6: integrated_workspace_workflow
+1/8 Test #6: integrated_workspace_workflow ..........   Passed    0.06 sec
+    Start 2: recovery_fault_injection
+2/8 Test #7: suggested_directory_structure ..........   Passed    0.07 sec
+    Start 4: merge_and_two_copy_retention
+3/8 Test #2: recovery_fault_injection ...............   Passed    0.04 sec
+    Start 5: read_only_merge_recommendations
+4/8 Test #1: core ...................................   Passed    0.11 sec
+    Start 8: manual_foundation_and_directory_pair
+5/8 Test #4: merge_and_two_copy_retention ...........   Passed    0.05 sec
+6/8 Test #5: read_only_merge_recommendations ........   Passed    0.04 sec
+7/8 Test #8: manual_foundation_and_directory_pair ...   Passed    0.04 sec
+8/8 Test #3: directory_stress .......................   Passed    1.06 sec
+
+100% tests passed, 0 tests failed out of 8
+
+Total Test time (real) =   1.06 sec

@@ -1,0 +1,28 @@
+Internal ctest changing into directory: /mnt/data/dc_v1_release/build-sanitized
+Test project /mnt/data/dc_v1_release/build-sanitized
+      Start  1: core
+      Start  2: recovery_fault_injection
+ 1/11 Test  #2: recovery_fault_injection ...............   Passed    0.14 sec
+      Start  3: merge_and_two_copy_retention
+ 2/11 Test  #3: merge_and_two_copy_retention ...........   Passed    0.16 sec
+      Start  4: read_only_merge_recommendations
+ 3/11 Test  #1: core ...................................   Passed    0.38 sec
+      Start  5: integrated_workspace_workflow
+ 4/11 Test  #4: read_only_merge_recommendations ........   Passed    0.10 sec
+      Start  6: suggested_directory_structure
+ 5/11 Test  #5: integrated_workspace_workflow ..........   Passed    0.09 sec
+      Start  7: manual_foundation_and_directory_pair
+ 6/11 Test  #6: suggested_directory_structure ..........   Passed    0.15 sec
+      Start  8: complete_sha256_and_retention_policy
+ 7/11 Test  #7: manual_foundation_and_directory_pair ...   Passed    0.09 sec
+      Start  9: scan_observation_perspectives
+ 8/11 Test  #9: scan_observation_perspectives ..........   Passed    0.03 sec
+      Start 10: full_disk_and_manual_scope
+ 9/11 Test #10: full_disk_and_manual_scope .............   Passed    0.02 sec
+      Start 11: release_assertions_active
+10/11 Test #11: release_assertions_active ..............   Passed    0.01 sec
+11/11 Test  #8: complete_sha256_and_retention_policy ...   Passed    0.20 sec
+
+100% tests passed, 0 tests failed out of 11
+
+Total Test time (real) =   0.77 sec

@@ -1,0 +1,36 @@
+# DiskCurator Native 1.0.4 产品需求与验收矩阵
+
+DiskCurator 供用户整理本地目录和移动硬盘上的备份。用户先指定磁盘或目录，读取内容并查看结果，再决定保留哪些副本、如何归档或合并目录。图形界面和命令行共用文件判定、计划和事务执行器。交付目标为 Windows 10/11 x64。
+
+这是当前工程的需求入口。下表沿用 DC-DESIGN-2.6 的编号，列出可观察的通过条件。自动用例列使用 CTest 名称或 Windows 脚本名，复跑命令见 [测试指南](TESTING.md)。表中列出用例表示有检查入口，各构建的通过情况只以 [发布验收记录](RELEASE-ACCEPTANCE.md) 为准。
+
+## 1.0.4 易用性验收
+
+首次打开能直接选择文件夹或磁盘，选好范围后才开始扫描。查看重复文件、定位搜索和清除筛选可在结果区完成。单文件改名只针对选中路径；目录使用批量命名规则。归档方式可通过中文选项选择，数值错误在当前表单中纠正。生成预览可直接阅读，最终执行确认呈现操作范围和变更，取消后原文件仍在原位。对应检查位于 `core` 与 `smoke_gui_windows.ps1`。
+
+## 当前范围
+
+| 设计编号 | 用户操作与通过条件 | 自动用例或人工核查 |
+|---|---|---|
+| P-01～02、UI-01～02、SCAN-01 | 启动时选盘列表没有预选。用户选择卷或指定一个目录后才开始读取。多根可共同观察，启动写操作时必须确定唯一操作根。 | `full_disk_and_manual_scope`、`smoke_gui_windows.ps1`。真实换盘另见下文。 |
+| P-03、SCAN-02～04、08 | 首次主扫描对每个稳定、可读的普通文件计算完整 SHA-256，包括唯一文件和空文件。文件消失或变化时保留读取异常。缓存旧哈希、相同大小和修改时间均不能使本次完整读取跳过文件。 | `complete_sha256_and_retention_policy`、`scan_progress_and_streaming_hash` |
+| OBS-01～04、06～08、UI-03 | 容量为逻辑字节。文件候选用大小与 SHA-256 分组并按路径计入自身。目录树候选包含空目录。总览候选可跨选定根，精确副本标注实际核验根。内容不完整时显示未知，隔离前的保留者另按计划策略确定。 | `scan_observation_perspectives`、`scan_hash_action_policy`。真实双盘标签切换及 CSV 核对见测试指南。 |
+| P-04～06、UI-04～06、OBS-05 | 选择 A/B 后报告同路径相同与冲突、两侧独有、共有内容出现次数、较小侧覆盖率和多重集 Jaccard。空分母显示未定义。已有完整根库存时，后续核验只读取 A/B 子树。CLI 每次启动分析仍需先扫描传入的根。 | `manual_foundation_and_directory_pair`、`selected_directory_pair_scope`、`smoke_windows.ps1` |
+| UI-05、OBS-08 | 筛选或排序后选择仍须对应原根、路径与对象类型。文件/目录视角先匹配库存后截取。全选只选显示行，CSV 导出当前显示行并附范围、状态。主要大列表达到 5000 行上限时提示截取。 | `smoke_gui_windows.ps1` 验证筛选和选择；导出与截取端到端按测试指南人工核查。 |
+| P-07、ACT-01～04、07 | 单文件或目录规则重命名、所选重复文件隔离、当前根副本整理和指定目录清退均先生成计划。预览列出源、目标及适用策略。清退的合格保留者须在整个待清退目录外。策略可设 K=0～32，默认保留两个不同文件对象并复核内容字节。K=0 要求单独同意，快速模式依据扫描哈希及元数据复核。 | `complete_sha256_and_retention_policy`、`scan_hash_action_policy`、`smoke_policy_windows.ps1`、`core` |
+| ACT-05～07、UI-07 | 融合限同根互不重叠的两个子目录，保留源、空目录和同名异内容版本。类型/日期归档、相似照片、目录关系、融合建议和结构映射按需发起。用户可拒绝建议或编辑映射；计划更改须重新预览。WIC 感知哈希提供人工核对的照片候选。 | `merge_and_two_copy_retention`、`suggested_directory_structure`、`read_only_merge_recommendations`、`integrated_workspace_workflow`、`smoke_windows.ps1` |
+| P-08、UI-08、SCAN-05～07、PERF-01～05 | 长任务显示阶段、当前路径、文件和字节数。总量未知时用活动进度，估时注明当前盘及阶段。支持取消的任务等工作线程实际退出后才结束。缓存保存失败时仍能使用已读取的结果并持续看到独立告警。 | `scan_progress_and_streaming_hash`、`scan_rollup_and_verification_cancel`、`directory_stress`、`smoke_gui_windows.ps1 -CacheUnavailable` |
+| P-09、UI-09、ACT-08～10、PERF-06 | 文件修改、部分提交、执行失败或异常返回后，GUI 显示结果过期及历史。继续分析或变更前需显式重扫。移动类事务按日志恢复路径；复制类事务保留已提交的文件，恢复结果区分成功、部分完成及需人工处理。 | `recovery_fault_injection`、`merge_and_two_copy_retention`、`integrated_workspace_workflow`；GUI 写后状态核查见测试指南。 |
+| P-07、ACT-03、07（CLI） | 对支持预览的写命令，执行需同时给出 `--apply --yes`。未知命令、非法参数数量、错拼/重复的选项、无同意的零份策略必须报错退出；`undo` 和 `recover` 是用户显式发起的独立动作。 | `smoke_policy_windows.ps1`、`smoke_windows.ps1` |
+| P-10、UI-10、PERF-07 | 工程构建 x64 Release，测试断言生效。发布验证记录本次二进制和测试日志的 SHA-256。将临时夹具测试、UI 检查与实际介质测量分别记录。 | `release_assertions_active`、`check_manifest_windows.ps1`、`mark_windows_validation.ps1`、`package_release.ps1` |
+
+## 交付边界和后续需求
+
+| 需要区分的情形 | 当前行为 | 后续验收目标 |
+|---|---|---|
+| 写后刷新、跨次索引和大库存（G-05～07） | 显式扫描重新读取内容。索引可重建。部分视角截取显示，CSV 对应当前可见集合。 | 定义增量刷新、断点续扫的失效条件与回退；验证全量排序、分页、导出一致性和内存。 |
+| 根与设备身份（G-08、09、12） | 指定 A/B 要求原根库存完整。卷选择按卷身份复核，手动目录按路径复核。跨根数据用于观察，写事务限单根。 | 子树完整性证据、手动目录的卷身份和设备变化后的部分结果发布规则。 |
+| 基础操作与展示（G-10、11、13） | K=0 适用于现有重复组隔离。改名作用于单个文件或目录规则。写事务完成前等待，列表提供哈希摘要。 | 唯一文件管理、任意多选改名、任务取消粒度、完整哈希详情和图表。 |
+| 恢复与磁盘空间 | 隔离移动文件并继续占用空间。移动撤销恢复位置；融合、重组通过复制保留原文件和已提交副本。 | 永久删除、跨根写事务和内容历史版本恢复均在本版交付范围之外。 |
+
+本机自动化已能覆盖核心、CLI 和原生 GUI 路径。真实 USB HDD/SSD 拔盘与断电、NTFS/exFAT 换卷、长时间阻塞 I/O、多 DPI 和大盘吞吐仍须按设备、数据集和构建分别验收。[测试指南](TESTING.md) · [v2.6 详细设计](docs/design-v2.6/README.md)

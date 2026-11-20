@@ -1,0 +1,78 @@
+{
+  "date": "2026-11-20",
+  "environment": "Debian 13 x86_64, GCC 14.2, -std=c++17 -O2",
+  "scope": "In-memory read-only observations only; no storage throughput or Windows CNG performance measurement",
+  "fixture": {
+    "files": 500000,
+    "folders_including_root": 10001,
+    "identical_top_level_subtrees": 10000,
+    "files_per_subtree": 50
+  },
+  "before_source_sha256": "7c7d353f66eb2b9df1523ce92cbc1e7b6b2a6f7f523566405dcf574b9814fc11",
+  "after_source_sha256": "9da76fa6b6f89262f6bec4d49fc94b615133fc775f820b49113ec76a081b9819",
+  "hash_backend": "Same unchanged portable SHA-256 implementation from v1.0.0 hotfix1 for both binaries",
+  "compiler_command": "g++ -std=c++17 -O2 -ffunction-sections -fdata-sections -Wl,--gc-sections [observations.cpp] [original hash_index.cpp] [utf8 support] tools/observation_benchmark.cpp -o [binary]",
+  "runs": [
+    {
+      "files": "500000",
+      "folders": "10001",
+      "observation_seconds": "0.619652",
+      "peak_rss_kib": "271380",
+      "version": "before",
+      "run": 1
+    },
+    {
+      "files": "500000",
+      "folders": "10001",
+      "observation_seconds": "0.474773",
+      "peak_rss_kib": "188672",
+      "version": "after",
+      "run": 1
+    },
+    {
+      "files": "500000",
+      "folders": "10001",
+      "observation_seconds": "0.950574",
+      "peak_rss_kib": "271384",
+      "version": "before",
+      "run": 2
+    },
+    {
+      "files": "500000",
+      "folders": "10001",
+      "observation_seconds": "0.4424",
+      "peak_rss_kib": "188680",
+      "version": "after",
+      "run": 2
+    },
+    {
+      "files": "500000",
+      "folders": "10001",
+      "observation_seconds": "0.738192",
+      "peak_rss_kib": "271384",
+      "version": "before",
+      "run": 3
+    },
+    {
+      "files": "500000",
+      "folders": "10001",
+      "observation_seconds": "0.541465",
+      "peak_rss_kib": "188680",
+      "version": "after",
+      "run": 3
+    }
+  ],
+  "median_observation_seconds": {
+    "before": 0.738192,
+    "after": 0.474773
+  },
+  "median_peak_rss_kib": {
+    "before": 271384,
+    "after": 188680
+  },
+  "notes": [
+    "Timing varies with shared-host CPU load; the memory change is stable across these runs.",
+    "Peak RSS includes the input inventory and entire process, not just observer allocations.",
+    "No claimed relation to the user external HDD 1 TB completion time."
+  ]
+}

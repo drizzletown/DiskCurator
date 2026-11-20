@@ -1,0 +1,40 @@
+适用于 .NET Framework MSBuild 版本 17.14.23+b0019275e
+
+  diskcurator_core.vcxproj -> <USERPROFILE>\Documents\DiskCurator\DiskCurator-v2.6\DiskCurator-Native\build-release\Release\diskcurator_core.lib
+  dc_structure_tests.vcxproj -> <USERPROFILE>\Documents\DiskCurator\DiskCurator-v2.6\DiskCurator-Native\build-release\Release\dc_structure_tests.exe
+  dc_tests.vcxproj -> <USERPROFILE>\Documents\DiskCurator\DiskCurator-v2.6\DiskCurator-Native\build-release\Release\dc_tests.exe
+  dc_scan_progress_tests.vcxproj -> <USERPROFILE>\Documents\DiskCurator\DiskCurator-v2.6\DiskCurator-Native\build-release\Release\dc_scan_progress_tests.exe
+  dc_stress_tests.vcxproj -> <USERPROFILE>\Documents\DiskCurator\DiskCurator-v2.6\DiskCurator-Native\build-release\Release\dc_stress_tests.exe
+  dc_scope_tests.vcxproj -> <USERPROFILE>\Documents\DiskCurator\DiskCurator-v2.6\DiskCurator-Native\build-release\Release\dc_scope_tests.exe
+  win_main.cpp
+  dc_scoped_analysis_tests.vcxproj -> <USERPROFILE>\Documents\DiskCurator\DiskCurator-v2.6\DiskCurator-Native\build-release\Release\dc_scoped_analysis_tests.exe
+  dc_recommend_tests.vcxproj -> <USERPROFILE>\Documents\DiskCurator\DiskCurator-v2.6\DiskCurator-Native\build-release\Release\dc_recommend_tests.exe
+  dc_recovery_tests.vcxproj -> <USERPROFILE>\Documents\DiskCurator\DiskCurator-v2.6\DiskCurator-Native\build-release\Release\dc_recovery_tests.exe
+  dc_workflow_tests.vcxproj -> <USERPROFILE>\Documents\DiskCurator\DiskCurator-v2.6\DiskCurator-Native\build-release\Release\dc_workflow_tests.exe
+  dc_scan_cancel_tests.vcxproj -> <USERPROFILE>\Documents\DiskCurator\DiskCurator-v2.6\DiskCurator-Native\build-release\Release\dc_scan_cancel_tests.exe
+  dc_hash_policy_tests.vcxproj -> <USERPROFILE>\Documents\DiskCurator\DiskCurator-v2.6\DiskCurator-Native\build-release\Release\dc_hash_policy_tests.exe
+  dc_merge_tests.vcxproj -> <USERPROFILE>\Documents\DiskCurator\DiskCurator-v2.6\DiskCurator-Native\build-release\Release\dc_merge_tests.exe
+  dc_observation_tests.vcxproj -> <USERPROFILE>\Documents\DiskCurator\DiskCurator-v2.6\DiskCurator-Native\build-release\Release\dc_observation_tests.exe
+  dc_benchmark.vcxproj -> <USERPROFILE>\Documents\DiskCurator\DiskCurator-v2.6\DiskCurator-Native\build-release\Release\dc_benchmark.exe
+  dc_hash_actions_tests.vcxproj -> <USERPROFILE>\Documents\DiskCurator\DiskCurator-v2.6\DiskCurator-Native\build-release\Release\dc_hash_actions_tests.exe
+  dc_foundation_tests.vcxproj -> <USERPROFILE>\Documents\DiskCurator\DiskCurator-v2.6\DiskCurator-Native\build-release\Release\dc_foundation_tests.exe
+  dc_cli.vcxproj -> <USERPROFILE>\Documents\DiskCurator\DiskCurator-v2.6\DiskCurator-Native\build-release\Release\dc_cli.exe
+  dc_assert_sanity.vcxproj -> <USERPROFILE>\Documents\DiskCurator\DiskCurator-v2.6\DiskCurator-Native\build-release\Release\dc_assert_sanity.exe
+  DiskCurator.vcxproj -> <USERPROFILE>\Documents\DiskCurator\DiskCurator-v2.6\DiskCurator-Native\build-release\Release\DiskCurator.exe
+CMake is re-running because <USERPROFILE>/Documents/DiskCurator/DiskCurator-v2.6/DiskCurator-Native/build-release/CMakeFiles/generate.stamp is out-of-date.
+  the file '<USERPROFILE>/Documents/DiskCurator/DiskCurator-v2.6/DiskCurator-Native/src/app.manifest'
+  is newer than '<USERPROFILE>/Documents/DiskCurator/DiskCurator-v2.6/DiskCurator-Native/build-release/CMakeFiles/generate.stamp.depend'
+  result='-1'
+-- Selecting Windows SDK version 10.0.26100.0 to target Windows 10.0.26200.
+-- Configuring done (0.0s)
+-- Generating done (0.4s)
+-- Build files have been written to: <USERPROFILE>/Documents/DiskCurator/DiskCurator-v2.6/DiskCurator-Native/build-release
+适用于 .NET Framework MSBuild 版本 17.14.23+b0019275e
+
+  diskcurator_core.vcxproj -> <USERPROFILE>\Documents\DiskCurator\DiskCurator-v2.6\DiskCurator-Native\build-release\Release\diskcurator_core.lib
+  DiskCurator.vcxproj -> <USERPROFILE>\Documents\DiskCurator\DiskCurator-v2.6\DiskCurator-Native\build-release\Release\DiskCurator.exe
+适用于 .NET Framework MSBuild 版本 17.14.23+b0019275e
+
+  diskcurator_core.vcxproj -> <USERPROFILE>\Documents\DiskCurator\DiskCurator-v2.6\DiskCurator-Native\build-release\Release\diskcurator_core.lib
+  win_main.cpp
+  DiskCurator.vcxproj -> <USERPROFILE>\Documents\DiskCurator\DiskCurator-v2.6\DiskCurator-Native\build-release\Release\DiskCurator.exe
