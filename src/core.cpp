@@ -1,4 +1,5 @@
 #include "core.hpp"
+#include "old_disk_refresh.hpp"
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -1076,7 +1077,7 @@ MergePlan plan_merge_dirs(const Inventory& inv,const fs::path& source,const fs::
         target_files.insert(path_key(dest));
         if(mode==MergeMode::MissingOnly&&f.sha256.size()!=64)
             throw std::runtime_error("Backup copy requires a full scan digest");
-        plan.copies.push_back({f.rel,dest,f.bytes,f.mtime,mode==MergeMode::MissingOnly?f.sha256:std::string{}});
+        plan.copies.push_back({f.rel,dest,f.bytes,f.mtime,f.sha256});
     }
     // Directory paths recorded are derived from source directories, never from
     // parent paths outside the selected merge destination.
@@ -1091,6 +1092,7 @@ MergePlan plan_merge_dirs(const Inventory& inv,const fs::path& source,const fs::
     plan.warnings.push_back("Copy-only merge. Both original backup folders are retained; source is never deleted.");
     return plan;
 }
+static void verify_named_streams(const fs::path& source,const fs::path& keeper,const std::atomic_bool* cancel=nullptr);
 static void check_retention(const RetentionPolicy& policy){
     if(policy.min_active_copies>32 || (policy.min_active_copies==0&&!policy.allow_zero_active))
         throw std::runtime_error("Retention minimum must be 1..32, or 0 with explicit allow_zero_active consent");
@@ -1196,8 +1198,11 @@ Plan plan_quarantine_selected(const Inventory& inv,const Duplicates& duplicates,
             throw std::runtime_error("Selection would leave fewer than configured " +
                 std::to_string(policy.min_active_copies)+" verified active copies: "+
                 utf8(inv.files[members.front()].rel));
-        for(auto id:members)if(chosen.count(path_key(inv.files[id].rel)))
+        for(auto id:members)if(chosen.count(path_key(inv.files[id].rel))){
+            if(policy.verify_bytes_before_change)for(auto keeper:keepers)
+                verify_named_streams(inv.root/inv.files[id].rel,inv.root/inv.files[keeper].rel);
             plan.moves.push_back(quarantine_move(inv.files[id],keepers,inv));
+        }
     }
     validate_plan(plan);
     if(!policy.verify_bytes_before_change){
@@ -1725,11 +1730,64 @@ std::vector<std::string> recover_incomplete(const fs::path& root){RootMutationLo
         catch(const std::exception&e){append(t.path,"RECOVERY_FAILED");report.push_back("MANUAL RECOVERY NEEDED "+t.id+": "+e.what());}}
     return report;
 }
+// The content digest covers the main data stream. A retained duplicate must
+// also preserve the alternate streams before a verified quarantine can proceed.
+static void verify_named_streams(const fs::path& source,const fs::path& archived,
+                                 const std::atomic_bool* cancel){
+#ifdef _WIN32
+    const auto list=[](const fs::path& file){
+        std::map<std::wstring,U64> result;
+        WIN32_FIND_STREAM_DATA info{};
+        const auto path=extended_path(file);
+        const HANDLE first=FindFirstStreamW(path.c_str(),FindStreamInfoStandard,&info,0);
+        if(first==INVALID_HANDLE_VALUE){
+            const DWORD error=GetLastError();
+            if(error==ERROR_HANDLE_EOF)return result;
+            // Some filesystems cannot represent named streams. Other failures
+            // must leave the original in place rather than discount its streams.
+            std::wstring mount(32768,0);DWORD flags=0;
+            if((error==ERROR_INVALID_FUNCTION||error==ERROR_NOT_SUPPORTED||error==ERROR_INVALID_PARAMETER)&&
+               GetVolumePathNameW(path.c_str(),mount.data(),DWORD(mount.size()))&&
+               GetVolumeInformationW(mount.c_str(),nullptr,0,nullptr,nullptr,&flags,nullptr,0)&&!(flags&FILE_NAMED_STREAMS))
+                return result;
+            throw std::runtime_error("无法读取文件的 NTFS 附加数据流。");
+        }
+        struct FindHandle {HANDLE value;~FindHandle(){FindClose(value);}} guard{first};
+        do{
+            if(std::wstring(info.cStreamName)!=L"::$DATA")result.emplace(info.cStreamName,static_cast<U64>(info.StreamSize.QuadPart));
+        }while(FindNextStreamW(first,&info));
+        if(GetLastError()!=ERROR_HANDLE_EOF)throw std::runtime_error("附加数据流枚举不完整。");
+        return result;
+    };
+    const auto streams=list(source);
+    if(streams!=list(archived))throw std::runtime_error("归档位置与原件的 NTFS 附加数据流不同。");
+    for(const auto& stream:streams){
+        std::ifstream a(fs::path(extended_path(source)+stream.first),std::ios::binary);
+        std::ifstream b(fs::path(extended_path(archived)+stream.first),std::ios::binary);
+        if(!a||!b)throw std::runtime_error("无法打开待核对的附加数据流。");
+        std::array<char,65536> x,y;
+        U64 remaining=stream.second;
+        while(remaining){
+            check_abort(cancel);
+            const auto bytes=static_cast<std::streamsize>(std::min<U64>(remaining,x.size()));
+            a.read(x.data(),bytes);b.read(y.data(),bytes);
+            if(!a||!b||!std::equal(x.begin(),x.begin()+bytes,y.begin()))
+                throw std::runtime_error("归档位置的附加数据与原件内容不同。");
+            remaining-=static_cast<U64>(bytes);
+        }
+        if(a.peek()!=EOF||b.peek()!=EOF||a.bad()||b.bad())throw std::runtime_error("核对期间附加数据发生变化。");
+    }
+#else
+    (void)source;(void)archived;(void)cancel;
+#endif
+}
 Result execute_plan(const fs::path& input,const Plan& plan){
     Result result;if(plan.moves.empty()){result.success=true;result.message="Nothing to change";return result;}
     auto root=fs::absolute(input).lexically_normal();validate_plan(plan,plan.name.compare(0,6,"Undo: ")==0);
     std::error_code root_ec;if(!fs::is_directory(root,root_ec)||root_ec||reparse(root))return {false,"Selected root is unsafe or missing",{}};
     RootMutationLock mutation_guard(root);
+    if(!plan.archived_root_identity.empty()&&old_disk_directory_id(root)!=plan.archived_root_identity)
+        return {false,"原来的磁盘或操作目录已更换，请重新核对归档。",{}};
     for(auto& e:recover_incomplete(root))if(e.compare(0,6,"MANUAL")==0)return {false,e,{}};
     std::string id=txid();result.transaction=id;
     try{
@@ -1750,6 +1808,9 @@ Result execute_plan(const fs::path& input,const Plan& plan){
                 std::error_code ec;
                 const auto size=fs::file_size(root/m.from,ec);
                 if(ec)throw std::runtime_error("Cannot inspect file before quarantine");
+                if(!plan.archived_root_identity.empty()&&
+                   sha256_file(root/m.from,size,m.expected_source.at(0).mtime)!=m.scanned_sha256)
+                    throw std::runtime_error("原件内容已改变，已停止收起。");
                 for(const auto& keeper:m.keepers){
                     if(keeper.empty()||!is_inside(keeper)||path_key(keeper)==path_key(m.from)||
                        sources.count(path_key(keeper))||beneath(keeper,fs::path(L".DiskCurator-System")))
@@ -1758,6 +1819,9 @@ Result execute_plan(const fs::path& input,const Plan& plan){
                     const auto item=root/keeper;
                     if(!path_exists_checked(item)||reparse(item)||!fs::is_regular_file(item,ec)||ec)
                         throw std::runtime_error("Keeper is missing or unsafe");
+                    if(!plan.archived_root_identity.empty()&&fs::equivalent(root/m.from,item))
+                        throw std::runtime_error("原件和归档位置指向同一文件对象，已停止收起。");
+                    if(plan.retention.verify_bytes_before_change)verify_named_streams(root/m.from,item);
                     for(const auto& prior:checked)if(path_key(prior)==path_key(keeper))
                         throw std::runtime_error("Repeated keeper path");
                     if(plan.retention.distinct_file_objects)for(const auto& prior:checked){
@@ -1809,12 +1873,18 @@ Result execute_plan(const fs::path& input,const Plan& plan){
                         throw std::runtime_error("Keeper count changed after staging");
                     std::error_code check;const auto n=fs::file_size(stage,check);
                     if(check)throw std::runtime_error("Cannot stat staged quarantine file");
+                    if(!plan.archived_root_identity.empty()&&
+                       sha256_file(stage,n,original.expected_source.at(0).mtime)!=original.scanned_sha256)
+                        throw std::runtime_error("原件在收起过程中发生改变。");
                     std::vector<fs::path> checked;
                     for(const auto& keeper:original.keepers){
                         check_source_ancestors(root,keeper);
                         const auto item=root/keeper;
                         if(!fs::is_regular_file(item,check)||check||reparse(item))
                             throw std::runtime_error("Keeper disappeared after staging");
+                        if(!plan.archived_root_identity.empty()&&fs::equivalent(stage,item))
+                            throw std::runtime_error("归档文件不再是独立副本。");
+                        if(plan.retention.verify_bytes_before_change)verify_named_streams(stage,item);
                         if(plan.retention.distinct_file_objects)for(const auto& prior:checked){
                             const bool same=fs::equivalent(root/prior,item,check);
                             if(check||same)throw std::runtime_error("Keeper independence lost");
@@ -2382,6 +2452,240 @@ StructurePlan plan_archive_copy(const Inventory& inv,const ArchiveOptions& opt,c
     result.directories.assign(new_dirs.begin(),new_dirs.end());
     return result;
 }
+// Explicit mappings preserve the relative layout under each destination chosen by the user.
+static void check_mapping_path(const fs::path& path){
+    check_structure_path(path);
+    for(const auto& part:path)
+        if(part==L"."||part.empty()||component_key(part)==L".diskcurator-system")
+            throw std::runtime_error("Choose a normal relative path outside the transaction workspace: "+utf8(path));
+}
+static Inventory mapping_inventory(const fs::path& root,const fs::path& output,
+                                   const std::vector<StructureRule>& rules,const std::atomic_bool* cancel){
+    check_mapping_path(output);
+    if(output.has_parent_path()||rules.empty())throw std::runtime_error("Select sources and a top-level output folder");
+    std::set<std::wstring> sources;
+    for(const auto& rule:rules){
+        check_mapping_path(rule.source);
+        if(rule.target!=L".")check_mapping_path(rule.target);
+        if(beneath(rule.source,output)||beneath(output,rule.source)||!sources.insert(path_key(rule.source)).second)
+            throw std::runtime_error("Source selections overlap the output or each other: "+utf8(rule.source));
+    }
+    for(const auto& rule:rules)for(auto p=rule.source.parent_path();!p.empty();p=p.parent_path())
+        if(sources.count(path_key(p)))throw std::runtime_error("Select a folder or its children, not both: "+utf8(rule.source));
+    Inventory result;result.root=root;
+    const auto read=[&](const fs::path& rel,bool optional_output){
+        check_abort(cancel);check_source_ancestors(root,rel);
+        if(reparse(root/rel))throw std::runtime_error("Cannot organize a reparse point: "+utf8(rel));
+        if(optional_output&&!path_exists_checked(root/rel))return;
+        if(fs::is_directory(root/rel)){
+            auto local=scan(root/rel,{},cancel);
+            if(!local.complete())throw std::runtime_error("Cannot completely read selected folder: "+utf8(rel));
+            for(auto& f:local.files){
+                f.rel=rel/f.rel;check_mapping_path(f.rel);result.files.push_back(std::move(f));
+            }
+            for(auto& d:local.dirs){
+                d.rel=d.rel.empty()?rel:rel/d.rel;check_mapping_path(d.rel);result.dirs.push_back(std::move(d));
+            }
+        }else{
+            if(optional_output||!fs::is_regular_file(root/rel))throw std::runtime_error("Expected a regular source or output folder: "+utf8(rel));
+            result.files.push_back({rel,fs::file_size(root/rel),fs::last_write_time(root/rel),-1,{}});
+        }
+    };
+    for(const auto& rule:rules)read(rule.source,false);
+    read(output,true);
+    return result;
+}
+StructurePlan plan_selected_structure(const Inventory& inv,const fs::path& output,
+    const std::vector<StructureRule>& rules,const std::atomic_bool* cancel){
+    StructurePlan plan;plan.selected_sources=true;plan.output_base=output;plan.rules=rules;
+    plan.selected_root_identity=old_disk_directory_id(inv.root);
+    auto scope=mapping_inventory(inv.root,output,rules,cancel);
+    plan.root_snapshot=snapshot(scope,{},true);
+    std::map<std::wstring,const StructureRule*> selected;
+    for(const auto& rule:rules)selected.emplace(path_key(rule.source),&rule);
+    const auto owner=[&](fs::path path)->const StructureRule*{
+        while(!path.empty()){
+            const auto it=selected.find(path_key(path));
+            if(it!=selected.end())return it->second;
+            path=path.parent_path();
+        }
+        return nullptr;
+    };
+    const auto destination=[&](const fs::path& path,const StructureRule& rule){
+        auto dest=rule.target==L"."?output:output/rule.target;
+        if(path_key(path)!=path_key(rule.source))dest/=path.lexically_relative(rule.source);
+        return dest;
+    };
+    std::set<std::wstring> known;
+    std::map<std::wstring,const File*> original;
+    for(const auto& d:inv.dirs)if(selected.count(path_key(d.rel)))known.insert(path_key(d.rel));
+    for(const auto& f:inv.files){
+        check_abort(cancel);
+        if(selected.count(path_key(f.rel)))known.insert(path_key(f.rel));
+        if(owner(f.rel))original.emplace(path_key(f.rel),&f);
+    }
+    if(known.size()!=rules.size())throw std::runtime_error("Select source items from the current scan");
+    struct Occupant {const File* file;bool existing;};
+    std::map<std::wstring,Occupant> files;
+    std::set<std::wstring> dirs;
+    for(const auto& f:scope.files)if(beneath(f.rel,output))
+        if(!files.emplace(path_key(f.rel),Occupant{&f,true}).second)
+            throw std::runtime_error("Ambiguous destination filename: "+utf8(f.rel));
+    for(const auto& d:scope.dirs)if(beneath(d.rel,output))dirs.insert(path_key(d.rel));
+    if(dirs.count(path_key(output))){
+        const auto marker="Merge directories: Structure reorganization -> "+utf8(output);
+        const auto records=history(inv.root);
+        if(std::none_of(records.begin(),records.end(),[&](const HistoryItem& h){
+            return h.label==marker&&(h.status=="DONE"||h.status=="PARTIAL");}))
+            throw std::runtime_error("Choose a new output folder or one created by an earlier mapping");
+    }
+    const auto add_dir=[&](fs::path path){
+        for(;!path.empty();path=path.parent_path()){
+            if(files.count(path_key(path)))throw std::runtime_error("A file blocks the requested folder: "+utf8(path));
+            if(!dirs.insert(path_key(path)).second)break;
+            plan.directories.push_back(path);
+        }
+    };
+    add_dir(output);
+    for(const auto& d:scope.dirs)if(const auto* rule=owner(d.rel))add_dir(destination(d.rel,*rule));
+    // Sorting sources makes the name chosen for the first version independent of selection order.
+    std::vector<const File*> input;
+    for(const auto& f:scope.files)if(!beneath(f.rel,output))input.push_back(&f);
+    if(input.size()!=original.size())throw std::runtime_error("Selected files changed since scan; rescan first");
+    std::sort(input.begin(),input.end(),[](const File* a,const File* b){return a->rel<b->rel;});
+    for(const auto* file:input){
+        check_abort(cancel);
+        const auto& f=*file;const auto* rule=owner(f.rel);
+        if(!rule)throw std::runtime_error("Missing source mapping: "+utf8(f.rel));
+        const auto found=original.find(path_key(f.rel));
+        if(found==original.end()||found->second->bytes!=f.bytes||found->second->mtime!=f.mtime)
+            throw std::runtime_error("Source changed since scan: "+utf8(f.rel));
+        if(rule->source==f.rel&&rule->target==L".")throw std::runtime_error("Select a target filename");
+        const auto hash=found->second->sha256.empty()?sha256_file(inv.root/f.rel,f.bytes,f.mtime,cancel):found->second->sha256;
+        const auto wanted=destination(f.rel,*rule);
+        add_dir(wanted.parent_path());
+        auto target=wanted;
+        for(unsigned n=1;;++n){
+            if(n>100000)throw std::runtime_error("Too many conflicting names: "+utf8(wanted));
+            const auto key=path_key(target);
+            const auto it=files.find(key);
+            if(it==files.end()&&!dirs.count(key)){
+                files.emplace(key,Occupant{&f,false});
+                plan.mappings.push_back({f.rel,target,"COPY",f.bytes,f.mtime,0,hash});
+                plan.copies.push_back({f.rel,target,f.bytes,f.mtime,hash});
+                plan.bytes_to_copy+=f.bytes;
+                if(target!=wanted)++plan.renamed_conflicts;
+                break;
+            }
+            if(it!=files.end()&&it->second.file->bytes==f.bytes){
+                const auto& other=*it->second.file;
+                const auto equal=equal_bytes(inv.root/f.rel,inv.root/other.rel,f.bytes,f.mtime,other.mtime,cancel);
+                if(!equal)throw std::runtime_error("Cannot verify target for reuse: "+utf8(target));
+                if(*equal){
+                    const bool existing=it->second.existing;
+                    plan.mappings.push_back({f.rel,target,existing?"REUSE_EXISTING":"REUSE_PLANNED",f.bytes,f.mtime,0,hash});
+                    if(existing)plan.existing_skips.push_back({f.rel,target,f.bytes,f.mtime,other.mtime});
+                    break;
+                }
+            }
+            const auto suffix=L" (版本 "+std::to_wstring(n+1)+L")";
+            target=wanted.parent_path()/(wanted.stem().wstring()+suffix+wanted.extension().wstring());
+            check_mapping_path(target);
+        }
+    }
+    std::sort(plan.directories.begin(),plan.directories.end());
+    return plan;
+}
+RetirementProposal plan_retire_archived_files(const fs::path& root,const StructurePlan& archive,
+    unsigned minimum,const std::atomic_bool* cancel){
+    check_abort(cancel);
+    if(!archive.selected_sources||archive.selected_root_identity.empty()||
+       archive.selected_root_identity!=old_disk_directory_id(root))
+        throw std::runtime_error("请在刚刚完成复制归档的同一磁盘、同一目录中收起原件。");
+    check_mapping_path(archive.output_base);
+    if(archive.output_base.has_parent_path())throw std::runtime_error("归档目标无效。");
+    if(minimum<1||minimum>32)throw std::runtime_error("至少应有一份独立的归档副本。");
+    RetirementProposal result;
+    auto& plan=result.quarantine;
+    plan.name="Quarantine verified duplicate files after archive";
+    plan.retention.min_active_copies=minimum;
+    plan.archived_root_identity=archive.selected_root_identity;
+    if(archive.mappings.empty())return result;
+
+    // Bind the offered follow-up to a successful additive copy, including its
+    // exact source/destination pairs. A re-run with all existing byte-identical
+    // outputs uses the original completed transaction for this output root.
+    using Binding=std::pair<fs::path,fs::path>;
+    std::set<Binding> expected;
+    for(const auto& c:archive.copies)expected.emplace(c.from,c.to);
+    const auto marker="Merge directories: Structure reorganization -> "+utf8(archive.output_base);
+    const auto records=all_tx(root);
+    const auto completed=std::any_of(records.begin(),records.end(),[&](const Tx& tx){
+        if(tx.state!="DONE"||!tx.copy_mode||tx.label!=marker)return false;
+        if(expected.empty())return true;
+        if(tx.copies.size()!=expected.size())return false;
+        return std::all_of(tx.copies.begin(),tx.copies.end(),[&](const auto& copy){
+            return expected.count({copy.from,copy.to})!=0;
+        });
+    });
+    if(!completed)throw std::runtime_error("找不到本次归档成功的复制记录，原件保留在原处。");
+
+    Inventory targets;targets.root=root;
+    std::map<std::wstring,size_t> by_path;
+    std::map<std::string,std::vector<size_t>> by_hash;
+    std::set<std::wstring> origins;
+    std::set<std::wstring> selections;
+    for(const auto& rule:archive.rules)selections.insert(path_key(rule.source));
+    for(const auto& mapping:archive.mappings){
+        check_abort(cancel);check_mapping_path(mapping.from);check_mapping_path(mapping.to);
+        bool selected=false;
+        for(auto path=mapping.from;!path.empty()&&!selected;path=path.parent_path())selected=selections.count(path_key(path))!=0;
+        if(!selected||!origins.insert(path_key(mapping.from)).second||beneath(mapping.from,archive.output_base)||
+           !beneath(mapping.to,archive.output_base)||mapping.source_sha256.size()!=64)
+            throw std::runtime_error("原件没有有效的归档位置和校验记录。");
+        check_source_ancestors(root,mapping.from);check_source_ancestors(root,mapping.to);
+        const auto src=root/mapping.from,dst=root/mapping.to;
+        if(reparse(src)||reparse(dst)||!fs::is_regular_file(src)||!fs::is_regular_file(dst)||fs::equivalent(src,dst))
+            throw std::runtime_error("原件或归档缺失，或两个位置指向同一文件对象："+utf8(mapping.from));
+        if(sha256_file(src,mapping.bytes,mapping.source_time,cancel)!=mapping.source_sha256)
+            throw std::runtime_error("原件自归档后已改变："+utf8(mapping.from));
+        auto entry=by_path.emplace(path_key(mapping.to),targets.files.size());
+        if(entry.second){
+            const auto stamp=fs::last_write_time(dst);
+            if(sha256_file(dst,mapping.bytes,stamp,cancel)!=mapping.source_sha256)
+                throw std::runtime_error("归档内容自复制后已改变："+utf8(mapping.to));
+            targets.files.push_back({mapping.to,mapping.bytes,stamp,-1,mapping.source_sha256});
+            by_hash[mapping.source_sha256].push_back(entry.first->second);
+        }
+        verify_named_streams(src,dst,cancel);
+        const auto& saved=targets.files[entry.first->second];
+        const auto equal=equal_bytes(src,dst,mapping.bytes,mapping.source_time,saved.mtime,cancel);
+        if(!equal||!*equal)throw std::runtime_error("原件和归档内容未能通过逐字节核对："+utf8(mapping.from));
+    }
+    // Count distinct active archive objects only. A mapped source may never
+    // serve as a keeper for another origin being retired in this operation.
+    for(auto& group:by_hash)group.second=choose_keepers(targets,group.second,plan.retention);
+    for(const auto& mapping:archive.mappings){
+        check_abort(cancel);
+        const auto& representatives=by_hash.at(mapping.source_sha256);
+        if(representatives.size()<minimum){result.blocked.push_back(mapping.from);continue;}
+        const auto own=by_path.at(path_key(mapping.to));
+        std::vector<size_t> candidates{own};
+        candidates.insert(candidates.end(),representatives.begin(),representatives.end());
+        const auto keepers=choose_keepers(targets,candidates,plan.retention);
+        for(auto id:keepers){
+            const auto keeper=root/targets.files[id].rel;
+            if(fs::equivalent(root/mapping.from,keeper))
+                throw std::runtime_error("保留位置与待收起文件是硬链接："+utf8(mapping.from));
+            if(id!=own)verify_named_streams(root/mapping.from,keeper,cancel);
+        }
+        const File original{mapping.from,mapping.bytes,mapping.source_time,-1,mapping.source_sha256};
+        plan.moves.push_back(quarantine_move(original,keepers,targets));result.staged_bytes+=mapping.bytes;
+    }
+    plan.warnings.push_back("每个拟收起的原件都保留对应的归档文件。仅按本次映射到的独立归档文件计算保留份数。");
+    validate_plan(plan);
+    return result;
+}
 Result execute_structure_plan(const fs::path& input,const StructurePlan& plan){
     const bool nothing_to_copy=plan.copies.empty()&&plan.directories.empty();
     const auto root=fs::absolute(input).lexically_normal();
@@ -2403,14 +2707,19 @@ Result execute_structure_plan(const fs::path& input,const StructurePlan& plan){
     for(const auto& r:recover_incomplete(root))if(r.compare(0,6,"MANUAL")==0)return {false,r,{}};
     Result result;
     try{
-        auto fresh=scan(plan.archive_source?root/(*plan.archive_source):root);
+        if(plan.selected_sources&&!plan.selected_root_identity.empty()&&plan.selected_root_identity!=old_disk_directory_id(root))
+            throw std::runtime_error("The selected disk or folder was replaced; rescan before copying");
+        auto fresh=plan.selected_sources?mapping_inventory(root,plan.output_base,plan.rules,nullptr):
+            scan(plan.archive_source?root/(*plan.archive_source):root);
         if(!fresh.complete()||snapshot(fresh,{},true)!=plan.root_snapshot)
             throw std::runtime_error("Root directory changed since proposal; rescan before executing");
         // The preview is bound to the exact bytes scanned, not just metadata.
         for(const auto& m:plan.mappings){
             check_source_ancestors(root,m.from);
-            const auto sig=full_fingerprint(root/m.from,m.bytes,m.source_time);
-            if(!sig||*sig!=m.source_fingerprint)
+            if(!m.source_sha256.empty()){
+                if(sha256_file(root/m.from,m.bytes,m.source_time)!=m.source_sha256)
+                    throw std::runtime_error("Source content changed since scan: "+utf8(m.from));
+            }else if(const auto sig=full_fingerprint(root/m.from,m.bytes,m.source_time);!sig||*sig!=m.source_fingerprint)
                 throw std::runtime_error("Source content changed since preview: "+utf8(m.from));
         }
         std::set<std::wstring> targets;
@@ -2468,6 +2777,8 @@ Result execute_structure_plan(const fs::path& input,const StructurePlan& plan){
                 if(!eq||!*eq)throw std::runtime_error("Staged organized copy failed byte verification");
                 fs::last_write_time(stage,c.mtime,cp);
                 if(cp)throw std::runtime_error("Cannot preserve original modified timestamp");
+                if(!c.expected_sha256.empty()&&sha256_file(stage,c.bytes,c.mtime)!=c.expected_sha256)
+                    throw std::runtime_error("Organized copy content changed since preview: "+utf8(c.from));
                 sync_staged_file(stage);
             }
             append(journal,"STAGEDALL");

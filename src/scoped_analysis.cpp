@@ -3,6 +3,9 @@
 #include <chrono>
 #include <cwctype>
 #include <stdexcept>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 namespace dc {
 namespace {
@@ -37,6 +40,40 @@ fs::path selected_directory(const Inventory& inventory,const fs::path& requested
     if(!found)throw std::runtime_error("Selected directory was not present in the scan: "+utf8(requested));
     return found->rel; // Preserve the actual scanned spelling for relative paths.
 }
+// Re-read explicitly selected ordinary subtrees when an unrelated part of the
+// disk was inaccessible. Missing paths from a partial inventory are never
+// treated as evidence that a backup is complete.
+void refresh_subtree(Inventory& selected,const fs::path& relative,const Progress& progress,
+                     const std::atomic_bool* cancel,const ScanProgressCallback& structured) {
+    const auto verify_path=[&] {
+        fs::path path=selected.root;
+        auto ordinary=[](const fs::path& dir) {
+#ifdef _WIN32
+            const auto attr=GetFileAttributesW(extended_path(dir).c_str());
+            return attr!=INVALID_FILE_ATTRIBUTES && (attr&FILE_ATTRIBUTE_DIRECTORY) &&
+                   !(attr&FILE_ATTRIBUTE_REPARSE_POINT);
+#else
+            return fs::is_directory(fs::symlink_status(dir));
+#endif
+        };
+        if(!ordinary(path))throw std::runtime_error("Scan root is no longer an ordinary directory");
+        for(const auto& component:relative) {
+            path/=component;
+            if(!ordinary(path))throw std::runtime_error("Selected directory changed or is unavailable: "+utf8(path));
+        }
+    };
+    verify_path();
+    auto fresh=scan_hashed(relative.empty()?selected.root:selected.root/relative,progress,cancel,structured,false);
+    if(!fresh.complete())throw std::runtime_error("Could not fully read selected directory: "+fresh.errors.front());
+    verify_path();
+    for(auto& f:fresh.files){
+        check_cancel(cancel);f.rel=relative/f.rel;selected.files.push_back(std::move(f));
+    }
+    for(auto& d:fresh.dirs){
+        check_cancel(cancel);d.rel=d.rel.empty()?relative:relative/d.rel;selected.dirs.push_back(std::move(d));
+    }
+    selected.bytes+=fresh.bytes;
+}
 struct PairInventory {
     Inventory inventory;
     fs::path left,right;
@@ -45,7 +82,6 @@ struct PairInventory {
 PairInventory verify_pair_inventory(const Inventory& observed,const fs::path& a,const fs::path& b,
     bool merging,const Progress& progress,const std::atomic_bool* cancel,const ScanProgressCallback& structured) {
     check_cancel(cancel);
-    if(!observed.complete())throw std::runtime_error("Selected directory analysis requires a complete scan; review scan issues first");
     PairInventory pair;
     pair.left=selected_directory(observed,a,cancel);
     pair.right=selected_directory(observed,b,cancel);
@@ -53,6 +89,13 @@ PairInventory verify_pair_inventory(const Inventory& observed,const fs::path& a,
     if(left_key==right_key)throw std::runtime_error("Choose two different directories");
     if(merging&&(left_key.empty()||right_key.empty()||beneath_key(left_key,right_key)||beneath_key(right_key,left_key)))
         throw std::runtime_error("Merge requires two disjoint ordinary subdirectories");
+    Inventory refreshed;
+    if(!observed.complete()) {
+        refreshed.root=observed.root;
+        if(!beneath_key(left_key,right_key))refresh_subtree(refreshed,pair.left,progress,cancel,structured);
+        if(!beneath_key(right_key,left_key))refresh_subtree(refreshed,pair.right,progress,cancel,structured);
+    }
+    const auto& source=observed.complete()?observed:refreshed;
     pair.inventory.root=observed.root;
     pair.progress.root=observed.root;pair.progress.phase=ScanPhase::Analyzing;
     const auto started=std::chrono::steady_clock::now();auto last=started;
@@ -65,12 +108,12 @@ PairInventory verify_pair_inventory(const Inventory& observed,const fs::path& a,
     };
     if(progress)progress("Preparing only the selected directory pair: "+utf8(pair.left)+" <-> "+utf8(pair.right));
     report(true);
-    for(const auto& directory:observed.dirs) {
+    for(const auto& directory:source.dirs) {
         check_cancel(cancel);const auto key=path_key(directory.rel);
         if(beneath_key(key,left_key)||beneath_key(key,right_key))pair.inventory.dirs.push_back(directory);
         report();
     }
-    for(const auto& file:observed.files) {
+    for(const auto& file:source.files) {
         check_cancel(cancel);const auto key=path_key(file.rel);
         if(beneath_key(key,left_key)||beneath_key(key,right_key)) {
             if(file.rel.empty()||!is_inside(file.rel)||file.sha256.size()!=64||

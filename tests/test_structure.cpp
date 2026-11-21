@@ -1,4 +1,6 @@
 #include "core.hpp"
+#include "reviewed_duplicates.hpp"
+#include <algorithm>
 #include <cassert>
 #include <chrono>
 #include <fstream>
@@ -10,6 +12,112 @@ static void put(const fs::path& p,const std::string& bytes){fs::create_directori
 static std::string read(const fs::path& p){std::ifstream i(p,std::ios::binary);return {std::istreambuf_iterator<char>(i),{}};}
 static bool fails(const std::function<void()>& fn){try{fn();return false;}catch(const std::exception&){return true;}}
 static Inventory prepare(const fs::path& root){auto i=scan(root);auto d=deduplicate(i);if(!i.complete()||!d.errors.empty())throw std::runtime_error("Fixture scan failed");return i;}
+static void test_selected_mappings(const fs::path& root){
+    const auto first=fs::path("drawer")/"spring", second=fs::path("old machine")/"B";
+    const auto output=fs::path("curated");
+    put(root/first/"common.txt","same"); put(root/second/"common.txt","same");
+    put(root/first/"draft.txt","old!"); put(root/second/"draft.txt","new!");
+    put(root/second/"only.txt","later"); fs::create_directories(root/first/"empty");
+    put(root/"loose"/"save.txt","same"); put(root/"unselected"/"ignore","unrelated");
+    const std::vector<StructureRule> rules={{first,"project",""},{second,"project",""},
+        {fs::path("loose")/"save.txt",fs::path("by hand")/"keep.txt",""}};
+    auto inv=scan_hashed(root,{},nullptr,{},false);
+    inv.errors.push_back("Unrelated inaccessible folder");
+    const auto plan=plan_selected_structure(inv,output,rules);
+    assert(plan.mappings.size()==6&&plan.copies.size()==5&&plan.renamed_conflicts==1);
+    assert(!fs::exists(root/output)&&!fs::exists(root/".DiskCurator-System"));
+    for(const auto& copy:plan.copies)assert(copy.expected_sha256.size()==64);
+    const auto stale=root/first/"draft.txt";auto stamp=fs::last_write_time(stale);
+    put(stale,"tam!");fs::last_write_time(stale,stamp);
+    assert(!execute_structure_plan(root,plan).success&&!fs::exists(root/output));
+    put(stale,"old!");fs::last_write_time(stale,stamp);
+    put(root/second/"appeared","new file");
+    assert(!execute_structure_plan(root,plan).success&&!fs::exists(root/output));
+    fs::remove(root/second/"appeared");
+    // Unrelated changes on a large, partly unreadable disk must not prevent organizing these sources.
+    put(root/"unselected"/"fresh","outside");
+    const auto created=execute_structure_plan(root,plan);if(!created.success)throw std::runtime_error(created.message);
+    for(const auto& m:plan.mappings)assert(read(root/m.from)==read(root/m.to));
+    assert(fs::exists(root/output/"project"/"empty")&&fs::exists(root/output/"by hand"/"keep.txt"));
+    assert(fs::exists(root/first/"draft.txt")&&fs::exists(root/second/"draft.txt"));
+    assert(!fs::exists(root/output/"unselected"));
+    const auto fresh=scan(root);
+    auto reversed=rules;std::reverse(reversed.begin(),reversed.end());
+    const auto repeat=plan_selected_structure(fresh,output,reversed);
+    assert(repeat.copies.empty()&&repeat.directories.empty()&&repeat.existing_skips.size()==6);
+    assert(execute_structure_plan(root,repeat).success);
+    // Archive a chosen nested folder and a single loose file in their original hierarchy.
+    auto archived=plan_selected_structure(fresh,"archive",{{first,first,""},{fs::path("loose")/"save.txt","loose/save.txt",""}});
+    assert(archived.copies.size()==3&&execute_structure_plan(root,archived).success);
+    assert(read(root/"archive"/first/"draft.txt")=="old!"&&fs::exists(root/first/"draft.txt"));
+    assert(!fs::exists(root/"archive"/second));
+    assert(fails([&]{plan_selected_structure(fresh,"drawer",rules);}));
+    assert(fails([&]{plan_selected_structure(fresh,"unselected",rules);}));
+    assert(fails([&]{plan_selected_structure(fresh,"escape",{{first,"../outside",""}});}));
+    assert(fails([&]{plan_selected_structure(fresh,"escape",{{first,"x/.DiskCurator-System/q",""}});}));
+    assert(fails([&]{plan_selected_structure(fresh,"escape",{{"drawer","a",""},{first,"b",""}});}));
+    assert(fails([&]{plan_selected_structure(fresh,output,{{output/"project","another",""}});}));
+    // Only explicit, successfully archived origins may be retired.
+    const auto separate=root/"retirement";
+    put(separate/"in"/"a","same");put(separate/"in"/"b","same");put(separate/"in"/"c","only");
+    put(separate/"other"/"untouched","same");
+    auto copies=plan_selected_structure(scan(separate),"cold",{{"in","saved",""}});
+    assert(fails([&]{plan_retire_archived_files(separate,copies,1);}));
+    assert(execute_structure_plan(separate,copies).success);
+    assert(fails([&]{plan_retire_archived_files(root,copies,1);}));
+    const auto two=plan_retire_archived_files(separate,copies);
+    assert(two.quarantine.moves.size()==2&&two.blocked.size()==1&&two.blocked.front()==fs::path("in/c"));
+    for(const auto& move:two.quarantine.moves)assert(move.keepers.size()==2);
+    assert(execute_plan(separate,two.quarantine).success);
+    assert(!fs::exists(separate/"in/a")&&!fs::exists(separate/"in/b")&&read(separate/"in/c")=="only");
+    assert(read(separate/"cold/saved/a")=="same"&&read(separate/"other/untouched")=="same");
+    assert(undo_latest(separate).success&&read(separate/"in/a")=="same");
+    const auto one=plan_retire_archived_files(separate,copies,1);
+    assert(one.quarantine.moves.size()==3&&one.blocked.empty());
+    assert(execute_plan(separate,one.quarantine).success&&undo_latest(separate).success);
+    assert(read(separate/"cold/saved/c")=="only"&&read(separate/"in/c")=="only");
+    // Matched, equally sized/versioned edits on both sides are still not the archived content.
+    const auto source=separate/"in/c",target=separate/"cold/saved/c";
+    const auto ts=fs::last_write_time(source),tt=fs::last_write_time(target);
+#ifdef _WIN32
+    RetentionPolicy single;single.min_active_copies=1;
+    const auto observed=scan_hashed(separate,{},nullptr,{},false);
+    const auto duplicate=plan_reviewed_duplicate_group(observed,{"in/c"},single);
+    const auto stream=fs::path(source.wstring()+L":archive_sample");
+    const auto archived_stream=fs::path(target.wstring()+L":archive_sample");
+    {
+        std::ofstream extra(stream,std::ios::binary);
+        if(extra){
+            extra<<"left";extra.close();fs::last_write_time(source,ts);
+            assert(fails([&]{plan_retire_archived_files(separate,copies,1);}));
+            assert(!execute_plan(separate,one.quarantine).success);
+            assert(fails([&]{plan_reviewed_duplicate_group(observed,{"in/c"},single);}));
+            assert(!execute_plan(separate,duplicate).success);
+            put(archived_stream,"diff");fs::last_write_time(target,tt);
+            assert(fails([&]{plan_retire_archived_files(separate,copies,1);}));
+            put(archived_stream,"left");fs::last_write_time(target,tt);
+            assert(plan_reviewed_duplicate_group(observed,{"in/c"},single).moves.size()==1);
+            const auto with_stream=plan_retire_archived_files(separate,copies,1);
+            assert(execute_plan(separate,with_stream.quarantine).success&&undo_latest(separate).success);
+            assert(read(stream)=="left"&&read(archived_stream)=="left");
+        }
+    }
+#endif
+    put(source,"edit");put(target,"edit");fs::last_write_time(source,ts);fs::last_write_time(target,tt);
+    assert(fails([&]{plan_retire_archived_files(separate,copies,1);}));
+    assert(!execute_plan(separate,one.quarantine).success&&fs::exists(separate/"in/a"));
+    put(source,"only");fs::last_write_time(source,ts);fs::remove(target);
+    assert(fails([&]{plan_retire_archived_files(separate,copies,1);}));
+    assert(!execute_plan(separate,one.quarantine).success);
+    std::error_code hard_error;fs::create_hard_link(source,target,hard_error);
+    if(!hard_error){
+        assert(fails([&]{plan_retire_archived_files(separate,copies,1);}));
+        assert(!execute_plan(separate,one.quarantine).success);
+        assert(fs::exists(source)&&fs::exists(separate/"in/a"));
+    }
+    std::atomic_bool canceled{true};
+    assert(fails([&]{plan_selected_structure(fresh,"canceled",rules,&canceled);}));
+}
 int main(){
   const auto root=fs::temp_directory_path()/ ("dc_structure_"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
   try{
@@ -171,6 +279,7 @@ int main(){
     assert(fails([&]{(void)suggest_structure(many,"output",&cancelled);}));
     for(const auto& warning:large_proposal.warnings)
         assert(warning.find("two-independent-copy")==std::string::npos);
+    test_selected_mappings(root/"selected");
     std::error_code ec;fs::remove_all(root,ec);
     std::cout<<"STRUCTURE PROPOSAL, EDIT, VERIFY, IDEMPOTENCE PASSED\n";return 0;
   }catch(const std::exception& e){std::cerr<<"FAIL: "<<e.what()<<" fixture="<<utf8(root)<<"\n";return 2;}

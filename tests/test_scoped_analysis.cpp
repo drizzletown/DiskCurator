@@ -85,7 +85,18 @@ int main(){
         assert(rejected([&]{(void)evaluate_hashed_directory_pair(fresh,"../A","B");}));
         assert(rejected([&]{(void)evaluate_hashed_directory_pair(fresh,"missing","B");}));
         auto partial=fresh;partial.errors.push_back("scan incomplete");
-        assert(rejected([&]{(void)evaluate_hashed_directory_pair(partial,"A","B");}));
+        // An unrelated error causes both selected subtrees to be read again.
+        // A new source file becomes visible to the refreshed report and plan.
+        put(root/"A/added_since_scan","fresh");
+        auto refreshed=evaluate_hashed_directory_pair(partial,"A","B");
+        assert(refreshed.left_only_files==1);
+        auto partial_plan=plan_hashed_directory_merge(partial,"A","B");
+        assert(partial_plan.copies.size()==1&&partial_plan.copies[0].from=="A/added_since_scan");
+        // If a selected subtree itself is unavailable the plan must stop.
+        fs::rename(root/"A",root/"A-unavailable");
+        assert(rejected([&]{(void)plan_hashed_directory_merge(partial,"A","B");}));
+        fs::rename(root/"A-unavailable",root/"A");
+        fs::remove(root/"A/added_since_scan");
         auto missing=fresh;missing.files[file_index(missing,"A/common.bin")].sha256.clear();
         assert(rejected([&]{(void)evaluate_hashed_directory_pair(missing,"A","B");}));
         std::atomic_bool cancel{true};

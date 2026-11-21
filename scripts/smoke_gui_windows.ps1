@@ -202,12 +202,12 @@ function Text-At([int]$id) { return Get-ControlText (Control $id) }
 function Click([int]$id) {
     $control=Control $id
     if (-not (Is-Visible $id) -or -not [DiskCuratorGuiSmoke]::IsWindowEnabled($control)) {
-        throw "Control $id is disabled or hidden: $(Text-At $id)"
+        throw "Control $id is disabled or hidden at line $($MyInvocation.ScriptLineNumber): $(Text-At $id). $(Shown-Text)"
     }
     [void][DiskCuratorGuiSmoke]::PostMessage($control,0x00F5,[IntPtr]::Zero,[IntPtr]::Zero)
 }
 function Shown-Text {
-    return (@(100,102,108,244,245,247,248,250,251,253,254,273,276,277,278) | ForEach-Object {
+    return (@(100,102,108,244,245,247,248,250,251,253,254,273,276,277,278,280,281,282,283,284,285,286) | ForEach-Object {
         if (Is-Visible $_) { Text-At $_ }
     }) -join ' | '
 }
@@ -244,6 +244,19 @@ function Accept-Dialog([IntPtr]$dialog,[int]$id) {
     [void][DiskCuratorGuiSmoke]::PostMessage($dialog,0x111,[IntPtr]$id,$button)
 }
 
+function Wait-Step([int]$step) {
+    Wait-Until { (Is-Visible 282) -and (Text-At 244) -match "第 $step / 6 步" } "old disk step $step"
+}
+function Select-Matching {
+    Send-Action 5107
+    Wait-Until { (Get-SelectedCount) -eq 1 } 'select the one matching result'
+}
+function Confirm-OldPlan {
+    Click 108
+    $confirmation=Wait-Dialog '#32770' 'explicit old-disk transaction confirmation' '确认执行操作计划' @(6,7)
+    Accept-Dialog $confirmation 6
+    Wait-Until { (Is-Visible 282) -and (Text-At 282) -match '继续' -and -not (Is-Visible 108) -and (Text-At 245) -match '记录|完成' } 'committed transaction and refreshed navigation'
+}
 function Save-TestWindow([string]$filename) {
     if ([string]::IsNullOrWhiteSpace($ScreenshotDir)) { return }
     if (-not (Test-Path -LiteralPath $ScreenshotDir -PathType Container)) { New-Item -ItemType Directory -Path $ScreenshotDir -Force | Out-Null }
@@ -276,7 +289,7 @@ try {
     $script:stage=Control 244
     $script:metrics=Control 247
     if (-not [DiskCuratorGuiSmoke]::SetWindowPos($script:window,[IntPtr]::Zero,0,0,820,600,0x16)) { throw 'Cannot size test window' }
-    Assert-Layout @(270,271,272,250) 'task home at 820x600'
+    Assert-Layout @(280,270,271,272,250) 'task home at 820x600'
     foreach ($id in @(100,102,108,230,231)) { if (Is-Visible $id) { throw "Unexpected home control $id" } }
     foreach ($pair in @(@(270,'看空间占用'),@(271,'找重复文件'),@(272,'核对两份备份'))) {
         if ((Text-At $pair[0]) -notlike ('*'+$pair[1]+'*')) { throw 'Task action has an ambiguous label' }
@@ -398,6 +411,149 @@ try {
         Wait-Until { (Is-Visible 114) -and ((Shown-Text) -match '异常|不完整') } 'incomplete content scan remains labelled'
         if ((Is-Visible 277) -or (Is-Visible 108)) { throw 'Incomplete observations offered automatic isolation' }
     } finally { $locked.Dispose() }
+    # Follow one ordinary old-disk session from first inventory to final review.
+    Click-And-Home
+    $old=Join-Path $fixture '旧盘使用流程'
+    $left=Join-Path $old '蓝箱'
+    $right=Join-Path $old '出差留存'
+    $extra=Join-Path $old '额外一份'
+    foreach($dir in @($left,$right,$extra)){[void][IO.Directory]::CreateDirectory($dir)}
+    foreach($dir in @($left,$right)){
+        [IO.File]::WriteAllText((Join-Path $dir '基础资料.pdf'),'identical anchor')
+        [IO.File]::WriteAllText((Join-Path $dir '读书笔记.md'),'shared notes')
+        [IO.File]::WriteAllText((Join-Path $dir '三份清单.txt'),'three equal independent files')
+    }
+    [IO.File]::WriteAllText((Join-Path $extra '三份清单.txt'),'three equal independent files')
+    [IO.File]::WriteAllText((Join-Path $left '报价.txt'),'earlier version')
+    [IO.File]::WriteAllText((Join-Path $right '报价.txt'),'different version')
+    [IO.File]::WriteAllText((Join-Path $left '原始图样.txt'),'from only the first directory')
+    [IO.File]::WriteAllText((Join-Path $right '单独补充.txt'),'from only the second directory')
+    [IO.File]::WriteAllText((Join-Path $old '只想归档.log'),'archive me')
+    Start-FolderTask 280 $old
+    Wait-Step 1
+    if (-not (Is-Visible 282) -or (Is-Visible 108)) { throw 'An initial inventory should offer navigation without execution' }
+    Assert-Layout @(114,245,282) 'guided disk inventory'
+    Save-TestWindow '04-old-inventory.png'
+    Click 282;Wait-Step 2
+    Assert-Layout @(114,277,281,282,284) 'guided directory candidates'
+    Save-TestWindow '05-old-backups.png'
+    Check-Filter '蓝箱' 1;Select-Matching
+    Click 277
+    Wait-Until { (Is-Visible 284) -and ((Text-At 277) -match '合并') } 'pair details and reversible merge direction'
+    if ((Text-At 245) -notmatch '从 蓝箱 补到 出差留存') {
+        Click 284
+        Wait-Until { (Text-At 245) -match '从 蓝箱 补到 出差留存' -and (Is-Visible 277) -and (Text-At 277) -eq '预览目录合并' -and [DiskCuratorGuiSmoke]::IsWindowEnabled((Control 277)) } 'deliberate merge direction verified'
+    }
+    Click 277
+    Wait-Until { Is-Visible 108 } 'union preserves dated versions'
+    if (Test-Path -LiteralPath (Join-Path $right '原始图样.txt')) { throw 'Merge preview modified a real source' }
+    if ($CacheUnavailable) {
+        Click 282
+        $leave=Wait-Dialog '#32770' 'skip an unconfirmed plan' '磁盘文件整理助手' @(6,7) @('放弃')
+        Accept-Dialog $leave 6
+        Wait-Step 3
+        if (Test-Path -LiteralPath (Join-Path $right '原始图样.txt')) { throw 'Skipping an unconfirmed plan wrote data' }
+    } else {
+        Confirm-OldPlan
+        if ([IO.File]::ReadAllText((Join-Path $right '原始图样.txt')) -ne 'from only the first directory' -or
+            [IO.File]::ReadAllText((Join-Path $right '报价.txt')) -ne 'different version' -or
+            [IO.File]::ReadAllText((Join-Path $left '报价.txt')) -ne 'earlier version') { throw 'Merge lost an original or a unique file' }
+        $versions=@(Get-ChildItem -LiteralPath $right -File | Where-Object { [IO.File]::ReadAllText($_.FullName) -eq 'earlier version' })
+        if ($versions.Count -ne 1) { throw 'The conflicting source version must be kept once at the destination' }
+        Click 282;Wait-Step 2
+        Click 282;Wait-Step 3
+    }
+    Check-Filter '三份清单' 1;Select-Matching;Click 277
+    Wait-Until { (Text-At 245) -match '3 个位置|3 份' } 'three actual duplicate locations'
+    Check-Filter '额外一份' 1;Select-Matching;Click 277
+    Wait-Until { Is-Visible 108 } 'only the chosen extra file is proposed'
+    if ($CacheUnavailable) {
+        Click 282
+        $leave=Wait-Dialog '#32770' 'discard selected quarantine' '磁盘文件整理助手' @(6,7)
+        Accept-Dialog $leave 6
+    } else {
+        Confirm-OldPlan
+        if ((Test-Path -LiteralPath (Join-Path $extra '三份清单.txt')) -or
+            -not (Test-Path -LiteralPath (Join-Path $left '三份清单.txt')) -or
+            -not (Test-Path -LiteralPath (Join-Path $right '三份清单.txt'))) { throw 'Reviewed group isolated the wrong file' }
+        Click 282;Wait-Step 3;Click 282
+    }
+    Wait-Step 4
+    # Reading a saved position always starts with a fresh inventory and never executes a plan.
+    if (-not $CacheUnavailable) {
+        Click-And-Home;Start-FolderTask 280 $old;Wait-Step 1
+        Wait-Until { Is-Visible 283 } 'resume offered for the same physical directory'
+        Click 283;Wait-Step 4
+        Check-Filter '只想归档.log' 1;Select-Matching;Click 277
+        Wait-Until { Is-Visible 284 } 'archive list has a separate preview'
+        Click 284
+        $dest=Wait-Dialog 'DCFormNative' 'choose archive output' '归档副本存到哪里' @(1,2,2000)
+        Set-ControlText ([DiskCuratorGuiSmoke]::GetDlgItem($dest,2000)) '冷资料'
+        Accept-Dialog $dest 1
+        Wait-Until { Is-Visible 108 } 'archive copy preview';Confirm-OldPlan
+        if ([IO.File]::ReadAllText((Join-Path $old '冷资料\只想归档.log')) -ne 'archive me' -or
+            [IO.File]::ReadAllText((Join-Path $old '只想归档.log')) -ne 'archive me') { throw 'Keeping the original is required for archiving' }
+        $origin=Join-Path $old '只想归档.log'
+        $archived=Join-Path $old '冷资料\只想归档.log'
+        $contentHash=(Get-FileHash -LiteralPath $origin).Hash
+        Wait-Until { Is-Visible 286 } 'explicit post-archive action in history'
+        foreach ($keep in @(2,1)) {
+            Click 286
+            $retire=Wait-Dialog 'DCFormNative' 'choose how many archive objects must survive' '收起已归档原件' @(1,2,2000)
+            $choices=[DiskCuratorGuiSmoke]::GetDlgItem($retire,2000)
+            if ([DiskCuratorGuiSmoke]::SendMessage($choices,0x0146,[IntPtr]::Zero,[IntPtr]::Zero).ToInt32() -ne 2 -or
+                [DiskCuratorGuiSmoke]::SendMessage($choices,0x0147,[IntPtr]::Zero,[IntPtr]::Zero).ToInt32() -ne 0) {
+                throw 'Post-archive retirement must default to keeping two independent archive objects'
+            }
+            if ($keep -eq 1) {
+                if ([DiskCuratorGuiSmoke]::SendMessage($choices,0x014e,[IntPtr]1,[IntPtr]::Zero).ToInt32() -ne 1) {
+                    throw 'Could not explicitly choose one archive object'
+                }
+            }
+            Accept-Dialog $retire 1
+            if ($keep -eq 2) {
+                Wait-Until { (Text-At 244) -like '*收起已归档原件*' -and (Text-At 247) -match '拟隔离 0 个原文件.*留在原位 1 个' } 'default retention protects the original'
+                if ((Is-Visible 108) -or [DiskCuratorGuiSmoke]::IsWindowEnabled((Control 108))) { throw 'Protected original offered execution' }
+            } else {
+                Wait-Until { (Is-Visible 108) -and (Text-At 247) -match '拟隔离 1 个原文件.*留在原位 0 个' } 'one archive copy permits an explicit retirement preview'
+            }
+            if ((Get-FileHash -LiteralPath $origin).Hash -ne $contentHash -or
+                (Get-FileHash -LiteralPath $archived).Hash -ne $contentHash) { throw 'Retirement preview modified contents or locations' }
+            if ($keep -eq 2) {
+                Click 276
+                Wait-Until { (Is-Visible 286) -and -not (Is-Visible 108) } 'return to the same archived sources'
+            } else { Confirm-OldPlan }
+        }
+        $preserved=@(Get-ChildItem -LiteralPath (Join-Path $old '.DiskCurator-System\quarantine') -File -Recurse -Filter '只想归档.log')
+        if ((Test-Path -LiteralPath $origin) -or (Get-FileHash -LiteralPath $archived).Hash -ne $contentHash -or
+            $preserved.Count -ne 1 -or (Get-FileHash -LiteralPath $preserved[0].FullName).Hash -ne $contentHash) {
+            throw 'Confirmed archival retirement must retain the verified archive and a recoverable original in quarantine'
+        }
+        Click 282;Wait-Step 4
+    }
+    Click 282;Wait-Step 5
+    if (-not $CacheUnavailable) {
+        Check-Filter '单独补充.txt' 1;Select-Matching;Click 277
+        Wait-Until { (Is-Visible 284) -and (Text-At 277) -match '目标' } 'selected files can be remapped'
+        Select-Matching;Click 277
+        $map=Wait-Dialog 'DCFormNative' 'edit destination for a real source' '' @(1,2,2000)
+        Set-ControlText ([DiskCuratorGuiSmoke]::GetDlgItem($map,2000)) '项目\附录.txt'
+        Accept-Dialog $map 1
+        Wait-Until { [DiskCuratorGuiSmoke]::IsWindowEnabled($script:window) } 'accept a custom structure rule'
+        Assert-Layout @(114,277,281,282,284,285) 'editable mapping queue'
+        Click 284
+        $dest=Wait-Dialog 'DCFormNative' 'choose a different new layout' '新目录结构建在哪里' @(1,2,2000)
+        Set-ControlText ([DiskCuratorGuiSmoke]::GetDlgItem($dest,2000)) '新树'
+        Accept-Dialog $dest 1
+        Wait-Until { Is-Visible 108 } 'custom structure preview';Confirm-OldPlan
+        if ((Get-FileHash -LiteralPath (Join-Path $old '新树\项目\附录.txt')).Hash -ne
+            (Get-FileHash -LiteralPath (Join-Path $right '单独补充.txt')).Hash) { throw 'Remapped file does not match its preserved source' }
+        Click 282;Wait-Step 5
+    }
+    Click 282;Wait-Step 6
+    if (Is-Visible 108) { throw 'Final review must not apply unconfirmed changes' }
+    Click 282;Wait-Until { Is-Visible 280 } 'complete the workflow'
+    Write-Host 'PASS guided old-disk flow: version discovery and union, conflict preservation, group quarantine, archive, custom mapping, refresh and resume.'
     Write-Host 'PASS task home, metadata-only space browsing, duplicate retention, filtering, preview, backup comparison, safe copy and recent operations.'
 
 }

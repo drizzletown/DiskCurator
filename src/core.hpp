@@ -35,6 +35,7 @@ struct Inventory {
     bool index_persisted=false;
     std::string index_error;
     U64 bytes=0;
+    std::string root_identity; // Session-local identity for refreshing candidate observations.
     bool complete() const { return errors.empty(); }
 };
 struct InventorySummary {
@@ -210,6 +211,7 @@ struct Plan {
     std::vector<std::string> warnings;
     RetentionPolicy retention{};
     std::optional<CleanupSummary> cleanup_summary{};
+    std::string archived_root_identity{}; // Bound only for retiring successfully archived sources.
 };
 struct FileRename { fs::path source, new_filename; };
 bool valid_file_name(const fs::path& name);
@@ -218,7 +220,7 @@ Plan plan_rename(const Inventory& inv, const RenameOptions& opt);
 // Merge is additive: the source remains untouched, and the destination never overwrites.
 // Backup completion binds each staged copy to the digest shown by its comparison.
 struct CopyTask { fs::path from,to; U64 bytes=0; fs::file_time_type mtime{}; std::string expected_sha256{}; };
-std::string sha256_file(const fs::path& file,U64 size,fs::file_time_type mtime);
+std::string sha256_file(const fs::path& file,U64 size,fs::file_time_type mtime,const std::atomic_bool* cancel=nullptr);
 struct MergeSkip { fs::path from,to; U64 bytes=0; fs::file_time_type from_time{},to_time{}; };
 enum class MergeMode { PreserveVersions, MissingOnly };
 struct MergePlan {
@@ -262,9 +264,12 @@ struct StructureMapping {
     U64 bytes=0;
     fs::file_time_type source_time{};
     U64 source_fingerprint=0; // change detector; exact copy verified separately
+    std::string source_sha256{};
 };
 struct StructurePlan {
     fs::path output_base;
+    bool selected_sources=false; // Scope the snapshot to rules and output_base.
+    std::string selected_root_identity{};
     std::optional<fs::path> archive_source; // Present for copy-by-type/date within a selected folder.
     std::vector<StructureRule> rules;
     std::vector<SnapshotEntry> root_snapshot;
@@ -279,6 +284,10 @@ struct StructurePlan {
 StructureSuggestion suggest_structure(const Inventory& inv, const fs::path& output_base=L"整理结果",
                                       const std::atomic_bool* cancel=nullptr);
 StructurePlan plan_structure(const Inventory& inv, const StructureSuggestion& proposal);
+// Explicit mappings copy only the selected folders/files into a new top-level
+// output. A file target includes its filename; a folder target retains its subtree.
+StructurePlan plan_selected_structure(const Inventory& inv,const fs::path& output_base,
+    const std::vector<StructureRule>& rules,const std::atomic_bool* cancel=nullptr);
 Plan plan_clean_duplicates(const Inventory& inv, const Duplicates& duplicates,
                            RetentionPolicy policy={});
 // User-controlled selection; the configured retention policy is verified at
@@ -291,6 +300,9 @@ struct RetirementProposal {
     U64 staged_bytes=0; // quarantining DOES NOT immediately free disk space
     std::vector<fs::path> blocked; // insufficient distinct, verified copies OUTSIDE source
 };
+// Only mapped archive destinations may satisfy the active-copy floor.
+RetirementProposal plan_retire_archived_files(const fs::path& root,const StructurePlan& completed_archive,
+    unsigned minimum=2,const std::atomic_bool* cancel=nullptr);
 // Scoped cleanup isolates files according to the configured keeper count and
 // independence policy, counting keepers outside the chosen source directory.
 RetirementProposal plan_retire_directory(const Inventory& inv, const Duplicates& duplicates,

@@ -1,4 +1,4 @@
-#include "core.hpp"
+#include "old_disk_refresh.hpp"
 #include <cassert>
 #include <chrono>
 #include <cstdlib>
@@ -50,6 +50,26 @@ int main(){
      ++indices;
   }
   assert(indices==1);
+  {
+    const auto tracking=root/"refresh-test";
+    put(tracking/"keep","kept");put(tracking/"touch"/"file","alpha");
+    auto before=scan_hashed(tracking,{},nullptr,{},false);
+    const auto time=fs::last_write_time(tracking/"touch"/"file");
+    put(tracking/"touch"/"file","omega");fs::last_write_time(tracking/"touch"/"file",time);
+    put(tracking/"arrived","new");
+    U64 read=0;auto after=refresh_old_disk(before,{"touch"},{},nullptr,[&](const ScanProgress& p){read=p.bytes_read;});
+    assert(after.complete()&&after.files.size()==3&&read==(before.root_identity.empty()?12:8));
+    auto every=scan_hashed(tracking,{},nullptr,{},false);
+    for(size_t i=0;i<every.files.size();++i)assert(every.files[i].sha256==after.files[i].sha256);
+    fs::remove(tracking/"arrived");
+    assert(refresh_old_disk(after,{"arrived"}).files.size()==2);
+    auto wrong_root=before;wrong_root.root_identity="replaced-device";
+    assert(rejected([&]{(void)refresh_old_disk(wrong_root,{});}));
+    std::atomic_bool stopped{true};
+    assert(rejected([&]{(void)refresh_old_disk(after,{}, {}, &stopped);}));
+    assert(rejected([&]{(void)refresh_old_disk(after,{".."});}));
+    fs::remove_all(tracking);
+  }
   auto dup=deduplicate(hashed);assert(dup.errors.empty());
   RetentionPolicy one;one.min_active_copies=1;
   auto one_plan=plan_quarantine_selected(hashed,dup,{"copies/b.bin","copies/c.bin","copies/d.bin"},one);

@@ -15,6 +15,13 @@ $required = @(
     'src/hash_actions.cpp',
     'src/scoped_analysis.cpp',
     'src/backup_task.cpp',
+    'src/old_disk.cpp',
+    'src/old_disk.hpp',
+    'src/old_disk_refresh.hpp',
+    'src/old_disk_flow.inl',
+    'src/reviewed_duplicates.hpp',
+    'src/old_disk_bookmark.cpp',
+    'src/old_disk_bookmark.hpp',
     'src/backup_task.hpp',
     'src/observations.hpp',
     'src/observations.cpp',
@@ -53,6 +60,7 @@ $required = @(
     'tests/test_scan_cancellation.cpp',
     'tests/test_scoped_analysis.cpp',
     'tests/test_backup_task.cpp',
+    'tests/test_old_disk.cpp',
     'tools/perf_benchmark.cpp',
     'docs/design-v2.6/README.md'
 )

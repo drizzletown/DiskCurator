@@ -1,4 +1,4 @@
-#include "core.hpp"
+#include "reviewed_duplicates.hpp"
 #include <cassert>
 #include <chrono>
 #include <fstream>
@@ -100,6 +100,18 @@ int main(){
         }
         auto partial=scan_hashed(root);partial.errors.push_back("Access denied");
         assert(rejected([&]{(void)plan_clean_hashed_duplicates(partial,one);}));
+        RetentionPolicy unsafe;unsafe.min_active_copies=0;unsafe.distinct_file_objects=false;
+        unsafe.verify_bytes_before_change=false;unsafe.allow_zero_active=true;
+        const auto reviewed=plan_reviewed_duplicate_group(partial,{"copies/d.bin"},unsafe);
+        assert(reviewed.moves.size()==1&&reviewed.retention.min_active_copies==1);
+        assert(reviewed.retention.distinct_file_objects&&reviewed.retention.verify_bytes_before_change);
+        assert(!reviewed.retention.allow_zero_active);
+        const auto remaining=reviewed.moves.front().keepers.front();
+        const auto timestamp=fs::last_write_time(root/remaining);
+        put(root/remaining,"different");fs::last_write_time(root/remaining,timestamp);
+        assert(!execute_plan(root,reviewed).success&&fs::exists(root/"copies/d.bin"));
+        put(root/remaining,"same data");fs::last_write_time(root/remaining,timestamp);
+        assert(rejected([&]{(void)plan_reviewed_duplicate_group(partial,{"copies/d.bin","unique.bin"},unsafe);}));
         partial.errors.clear();partial.files.front().sha256.clear();
         assert(rejected([&]{(void)plan_clean_hashed_duplicates(partial,one);}));
         partial.files.front().sha256=std::string(64,'z');

@@ -25,6 +25,10 @@
 #include "core.hpp"
 #include "observations.hpp"
 #include "backup_task.hpp"
+#include "old_disk.hpp"
+#include "old_disk_bookmark.hpp"
+#include "reviewed_duplicates.hpp"
+#include "old_disk_refresh.hpp"
 
 #ifdef _MSC_VER
 #pragma comment(lib,"comctl32.lib")
@@ -37,9 +41,9 @@ constexpr wchar_t kProductName[]=L"磁盘文件整理助手";
 constexpr int kCompactTitleWidth=184;
 enum Id { ID_ROOT=100,ID_BROWSE,ID_SCAN,ID_STOP,ID_COMPARE,ID_RENAME,ID_ARCHIVE,ID_QUARANTINE,
           ID_APPLY,ID_UNDO,ID_EXPORT,ID_PHOTO,ID_LIST=114,ID_SEARCH,ID_RELATIONS,ID_MERGE,ID_SUGGEST,ID_STRUCTURE,ID_MAP_EDIT,ID_STRUCTURE_PREVIEW,ID_STRUCTURE_REJECT,ID_RETIRE=125, ID_BASIC_ACTIONS=240, ID_SCAN_PROGRESS=243, ID_PROGRESS_STAGE, ID_SELECTION_CONTEXT, ID_ALL_RESULTS, ID_PROGRESS_METRICS, ID_PROGRESS_PATH, ID_SHOW_HISTORY=250,ID_STATUS,
-          ID_CLEAR_FILTER=252,ID_WELCOME_TITLE,ID_WELCOME_DETAIL,ID_CHOOSE_DRIVES=256,ID_DUPLICATE_VIEW, ID_TASK_SPACE=270, ID_TASK_DUP, ID_TASK_BACKUP, ID_HOME, ID_BACKUP_TARGET, ID_BROWSE_TARGET, ID_BACK_RESULT, ID_CONTEXT_ACTION, ID_RETENTION };
-enum class Workflow { Home, Space, Duplicates, Backup, History };
-enum class Task { Space, Backup, Scan, ScanAll, Verify, Pair, Suggest, Structure, Photo, Relations, ArchivePlan, MergePlan, StructurePlan, RetirementPlan, QuarantinePlan, CleanPlan, RenamePlan, Apply, MergeApply, StructureApply, Undo };
+          ID_CLEAR_FILTER=252,ID_WELCOME_TITLE,ID_WELCOME_DETAIL,ID_CHOOSE_DRIVES=256,ID_DUPLICATE_VIEW, ID_TASK_SPACE=270, ID_TASK_DUP, ID_TASK_BACKUP, ID_HOME, ID_BACKUP_TARGET, ID_BROWSE_TARGET, ID_BACK_RESULT, ID_CONTEXT_ACTION, ID_RETENTION, ID_TASK_OLD=280, ID_OLD_BACK, ID_OLD_NEXT, ID_OLD_RESUME, ID_OLD_EXTRA, ID_OLD_REMOVE, ID_OLD_RETIRE };
+enum class Workflow { Home, Space, Duplicates, Backup, History, OldDisk };
+enum class Task { Space, Backup, Scan, ScanAll, Verify, Pair, Suggest, Structure, Photo, Relations, ArchivePlan, MergePlan, StructurePlan, RetirementPlan, QuarantinePlan, CleanPlan, RenamePlan, Apply, MergeApply, StructureApply, Undo, SelectedCopyPlan, OldRefresh, ArchivedRetirePlan };
 enum Command { CMD_OPEN=5100, CMD_ISOLATE_SELECTED, CMD_PAIR, CMD_EXACT, CMD_HISTORY, CMD_PREVIEW, CMD_POLICY, CMD_SELECT_ALL, CMD_SELECT_NONE, CMD_DIR_COPIES, CMD_SINGLE_COPIES, CMD_SCAN_DETAILS, CMD_SHOW_FILES, CMD_SHOW_DIRS };
 constexpr COLORREF kNavy=RGB(15,23,42),kPage=RGB(245,248,252),kAccent=RGB(21,184,153),kText=RGB(31,41,55),kMuted=RGB(100,116,139);
 
@@ -294,12 +298,31 @@ struct Row {
     Row(std::wstring name,std::wstring location,std::wstring size,std::wstring detail,dc::U64 value=0,fs::path path={},int index=-1)
       :a(std::move(name)),b(std::move(location)),c(std::move(size)),d(std::move(detail)),count(value),launch(std::move(path)),suggestion(index){}
 };
-struct JobResult {Task task;dc::SpaceInventory space;dc::BackupComparison backup;std::string error;dc::Inventory inventory;dc::Duplicates duplicates;std::vector<dc::DirGroup> dirs;dc::Duplicates hash_duplicates;dc::DirectoryPairReport pair;dc::OverlapListing overlaps;dc::PhotoReport photos;dc::Plan plan;dc::MergePlan merge_plan;dc::RetirementProposal retirement;dc::StructureSuggestion structure;dc::StructurePlan structure_plan;std::vector<dc::MergeSuggestion> suggestions;dc::Result result;dc::FullScan full_scan;dc::Observations observations;};
+struct JobResult {Task task;dc::OldDiskOverview old_overview;dc::SpaceInventory space;dc::BackupComparison backup;std::string error;dc::Inventory inventory;dc::Duplicates duplicates;std::vector<dc::DirGroup> dirs;dc::Duplicates hash_duplicates;dc::DirectoryPairReport pair;dc::OverlapListing overlaps;dc::PhotoReport photos;dc::Plan plan;dc::MergePlan merge_plan;dc::RetirementProposal retirement;dc::StructureSuggestion structure;dc::StructurePlan structure_plan;std::vector<dc::MergeSuggestion> suggestions;dc::Result result;dc::FullScan full_scan;dc::Observations observations;};
 struct App {
  HWND hwnd=nullptr,root_box=nullptr,btn_browse=nullptr,btn_scan=nullptr,btn_stop=nullptr,list=nullptr,search=nullptr,status=nullptr;
  HWND btn_basic=nullptr,btn_history=nullptr,btn_all_results=nullptr;
  HWND scan_bar=nullptr,progress_stage=nullptr,progress_metrics=nullptr,progress_path=nullptr,selection_context=nullptr;
  Workflow workflow=Workflow::Home;
+ HWND old_home=nullptr,old_back=nullptr,old_next=nullptr,old_resume=nullptr,old_extra=nullptr,old_remove=nullptr,old_retire=nullptr;
+ dc::OldDiskOverview old_overview;
+ unsigned old_step=0,old_saved=0;
+ bool old_metadata=false;
+ std::optional<unsigned> old_requested_step;
+ static constexpr int OldOverview=13, OldPairs=14, OldSources=15, OldRules=16, OldGroups=17, OldGroupFiles=18;
+ size_t old_group=0;
+ std::vector<dc::StructureRule> old_rules[2];
+ fs::path old_outputs[2]={L"旧资料归档",L"重新整理"};
+ fs::path old_folder;
+ std::vector<std::wstring> old_writes;
+ size_t old_keep=2;
+ std::vector<fs::path> old_changed;
+ std::shared_ptr<const dc::StructurePlan> old_archive;
+ fs::path old_archive_root;
+ unsigned old_archive_keep=2;
+ bool old_retire_after_refresh=false;
+ std::optional<DriveChoice> old_mount;
+
  HWND task_space=nullptr,task_dup=nullptr,task_backup=nullptr,home_button=nullptr,target_box=nullptr,target_browse=nullptr;
  HWND return_result=nullptr,context_action=nullptr,retention_button=nullptr;
  fs::path space_folder,recent_root;
@@ -406,6 +429,7 @@ struct App {
  void duplicate_shortcut(){
      if(can_verify_duplicate_files())run_action(CMD_EXACT);
  }
+ #include "old_disk_flow.inl"
  bool ready()const{return has_scan||full_overview()||external_backup;}
  bool space_result()const{return workflow==Workflow::Space&&view==1;}
  bool backup_result()const{return workflow==Workflow::Backup&&view==8;}
@@ -414,6 +438,7 @@ struct App {
        case Workflow::Space:return L"看空间占用";
        case Workflow::Duplicates:return L"找重复文件";
        case Workflow::Backup:return L"核对两份备份";
+       case Workflow::OldDisk:return L"整理一块旧盘";
        case Workflow::History:return L"最近操作";
        default:return L"选择任务";
      }
@@ -422,13 +447,16 @@ struct App {
      if(busy)return;
      if(has_pending&&MessageBoxW(hwnd,L"离开任务将放弃尚未执行的预览。继续吗？",kProductName,MB_YESNO|MB_DEFBUTTON2)!=IDYES)return;
      reset_inventory();reset_progress();workflow=next;
+     old_step=0;old_saved=0;old_metadata=next==Workflow::OldDisk;old_requested_step.reset();old_group=0;old_folder.clear();old_writes.clear();old_changed.clear();old_mount.reset();old_forget_archive();
+     old_rules[0].clear();old_rules[1].clear();old_outputs[0]=L"旧资料归档";old_outputs[1]=L"重新整理";old_keep=2;
      scan_scope=1;selected_drives.clear();root.clear();view=0;
      SetWindowTextW(root_box,next==Workflow::History?recent_root.c_str():L"");
      SetWindowTextW(target_box,L"");SetWindowTextW(search,L"");
      refresh();refresh_navigation();
-     SetFocus(next==Workflow::Home?task_space:root_box);
+     SetFocus(next==Workflow::Home?old_home:root_box);
  }
  void back_to_result(){
+     if(guided()){old_return();return;}
      if(workflow==Workflow::Home||workflow==Workflow::History)return;
      if(full_overview()){scope_view=3;refresh();refresh_navigation();return;}
      change_view(workflow==Workflow::Space?1:workflow==Workflow::Backup?8:2,true);
@@ -632,23 +660,50 @@ struct App {
      if(backup_result())text=backup_summary;
      if(view==7&&!count)text=L"记录仅属于当前操作目录。隔离可恢复原位置，复制操作保留已完成的目标文件。";
      if(count&&(view<=3||full_overview()))text+=L" · 所选行容量 "+bytes(total);
-     if(results_stale)text=L"结果已过期 · 仅供参考，请重新扫描 · "+text;
-     SetWindowTextW(selection_context,text.c_str());
+     if(guided()&&has_scan)text=old_caption();
+     if(results_stale&&!guided())text=L"结果已过期 · 仅供参考，请重新扫描 · "+text;
+     SetWindowTextW(selection_context,text.c_str());old_selection_buttons();
+ }
+ int heading_page=-2;
+ void update_list_headings(){
+     const int page=guided()?view:-1;
+     if(!list||heading_page==page)return;
+     heading_page=page;
+     const wchar_t* const generic[]={L"名称 / 状态",L"位置 / 对应关系",L"大小 / 数量",L"副本 / 说明"};
+     const wchar_t* const overview[]={L"目录 / 项目",L"主要类型 / 范围",L"大小",L"文件数 / 修改年份"};
+     const wchar_t* const pairs[]={L"一个目录",L"另一个目录",L"共同内容",L"核对线索"};
+     const wchar_t* const differences[]={L"差异",L"相对位置",L"来源大小",L"目标 / 说明"};
+     const wchar_t* const groups[]={L"文件名",L"其中一个位置",L"份数",L"保留规则"};
+     const wchar_t* const rules[]={L"原位置",L"新位置",L"操作",L"说明"};
+     const wchar_t* const* headings=generic;
+     switch(page){
+         case OldOverview:headings=overview;break;
+         case OldPairs:headings=pairs;break;
+         case 8:headings=differences;break;
+         case OldGroups:headings=groups;break;
+         case OldRules:headings=rules;break;
+     }
+     for(int i=0;i<4;++i){
+         LVCOLUMNW column{};column.mask=LVCF_TEXT;column.pszText=const_cast<wchar_t*>(headings[i]);
+         ListView_SetColumn(list,i,&column);
+     }
  }
  void refresh_navigation(){
      if(!btn_basic||!home_button)return;
      const bool home=workflow==Workflow::Home;
      const bool result=ready();
+     if(result)update_list_headings();
      const bool setup=!home&&!result&&!busy;
      const bool comparing=workflow==Workflow::Backup;
      const bool range=scan_scope==0?!selected_drives.empty():GetWindowTextLengthW(root_box)>0;
      auto show=[](HWND h,bool visible){ShowWindow(h,visible?SW_SHOW:SW_HIDE);};
-     for(HWND h:{task_space,task_dup,task_backup})show(h,home);
+     for(HWND h:{old_home,task_space,task_dup,task_backup})show(h,home);
      show(home_button,!home);EnableWindow(home_button,!busy);
      show(btn_history,!busy&&workflow!=Workflow::History&&!(result&&view==7));
      show(welcome_title,home||setup);show(welcome_detail,home||setup);
-     SetWindowTextW(welcome_title,home?L"你想做什么？":task_name());
-     SetWindowTextW(welcome_detail,home?L"选择一项任务，再指定要查看的位置。":
+     SetWindowTextW(welcome_title,home?L"从哪里开始整理？":task_name());
+     SetWindowTextW(welcome_detail,home?L"第一次打开一块陌生磁盘，可以从盘点开始，逐步核对和整理。":
+         guided()?L"先看目录大小、主要文件类型和修改年份，下一步再读取文件内容。":
          comparing?L"选择原资料和要核对的备份。先只读比较两边的内容。":
          workflow==Workflow::Space?L"选择文件夹或磁盘，只读取大小和目录信息。":
          workflow==Workflow::History?L"选择当时整理的根目录，直接读取该目录的操作记录。":L"选择文件夹或磁盘，按文件内容查找副本。");
@@ -659,8 +714,8 @@ struct App {
      EnableWindow(root_box,setup&&scan_scope==1);
      SetWindowTextW(btn_browse,scan_scope==0?L"选择磁盘…":comparing?L"选择原资料…":L"选择位置…");
      SetWindowTextW(choose_disks,scan_scope==0?L"改选文件夹":L"选择多个磁盘…");
-     SetWindowTextW(btn_scan,result?L"重新读取":comparing?L"开始核对":workflow==Workflow::Space?L"统计空间":workflow==Workflow::History?L"查看记录":L"查找重复文件");
-     show(btn_scan,!home&&!busy);EnableWindow(btn_scan,!busy&&range&&(!comparing||GetWindowTextLengthW(target_box)>0));
+     SetWindowTextW(btn_scan,result?(guided()&&old_metadata?L"按内容盘点":L"重新读取"):guided()?L"开始盘点":comparing?L"开始核对":workflow==Workflow::Space?L"统计空间":workflow==Workflow::History?L"查看记录":L"查找重复文件");
+     show(btn_scan,!home&&!busy&&!(result&&guided()&&old_metadata));EnableWindow(btn_scan,!busy&&range&&(!comparing||GetWindowTextLengthW(target_box)>0));
      show(btn_stop,busy&&task_cancelable);
      for(HWND h:{search,clear_filter,list,selection_context})show(h,result);
      EnableWindow(clear_filter,!busy&&GetWindowTextLengthW(search)>0);
@@ -682,7 +737,7 @@ struct App {
      show(btn_all_results,has_full_scan&&has_scan&&(selected_drives.size()>1||!all_scan.errors.empty()));
      show(status,result||(!home&&task_issue));show(progress_stage,busy||result||task_issue);show(progress_metrics,busy||result||task_issue);
      show(scan_bar,busy);show(progress_path,!home&&show_progress_detail());
-     refresh_selection();RECT client{};GetClientRect(hwnd,&client);layout(client.right,client.bottom,false);InvalidateRect(hwnd,nullptr,FALSE);
+     old_navigation(result);refresh_selection();RECT client{};GetClientRect(hwnd,&client);layout(client.right,client.bottom,false);InvalidateRect(hwnd,nullptr,FALSE);
  }
  bool show_progress_detail() const {
      return busy||task_issue||results_stale||(has_scan&&view==9);
@@ -709,7 +764,7 @@ struct App {
      dc::ScanProgress snapshot;std::wstring message;ULONGLONG updated;
      {std::lock_guard<std::mutex> lock(progress_mutex);snapshot=progress_snapshot;message=progress_message;updated=last_progress_tick;}
      const auto now=GetTickCount64();const auto elapsed=double(now-job_started)/1000.0;
-     const bool scanning=active_task==Task::Space||active_task==Task::Backup||active_task==Task::Scan||active_task==Task::ScanAll;
+     const bool scanning=active_task==Task::OldRefresh||active_task==Task::Space||active_task==Task::Backup||active_task==Task::Scan||active_task==Task::ScanAll;
      const bool quantified=(snapshot.phase==dc::ScanPhase::Hashing||snapshot.phase==dc::ScanPhase::Verifying)&&snapshot.totals_known;
      const bool marquee=!quantified;
      if(marquee!=progress_marquee){
@@ -788,7 +843,7 @@ struct App {
      task_issue=!success;
      SendMessageW(scan_bar,PBM_SETMARQUEE,FALSE,0);progress_marquee=false;
      SetWindowLongPtrW(scan_bar,GWL_STYLE,GetWindowLongPtrW(scan_bar,GWL_STYLE)&~PBS_MARQUEE);
-     const bool scanning=active_task==Task::Scan||active_task==Task::ScanAll;
+     const bool scanning=active_task==Task::OldRefresh||active_task==Task::Scan||active_task==Task::ScanAll;
      const size_t errors=scanning?scan_issue_count():0;
      const wchar_t* stage=L"本次任务未完成";
      if(success){
@@ -819,11 +874,17 @@ struct App {
      if(busy){move(scan_bar,margin,y,width,10);y+=16;}
      if(show_progress_detail()){move(progress_path,margin,y,width,23);y+=25;}
      y+=4;
-     move(search,margin,y,width-208,32);move(clear_filter,right-200,y,92,32);move(btn_scan,right-100,y,100,32);move(btn_stop,right-100,y,100,32);
+     const int action_width=guided()&&ready()&&old_metadata?0:108;
+     move(search,margin,y,width-action_width-100,32);move(clear_filter,right-action_width-92,y,92,32);move(btn_scan,right-100,y,100,32);move(btn_stop,right-100,y,100,32);
      y+=40;
      int x=margin;auto place=[&](HWND h,int w){if(GetWindowLongPtrW(h,GWL_STYLE)&WS_VISIBLE){move(h,x,y,w,32);x+=w+gap;}};
-     place(return_result,108);place(btn_all_results,106);place(context_action,142);place(duplicate_view,98);place(retention_button,104);place(btn_basic,112);place(btn_apply,120);
-     y+=40;move(selection_context,margin,y,width,26);y+=30;
+     if(guided()&&ready()){
+         place(old_back,88);place(old_next,236);place(old_resume,224);
+         y+=38;x=margin;
+     }
+     place(old_retire,170);place(old_extra,146);place(old_remove,90);place(return_result,108);place(btn_all_results,106);place(context_action,guided()?164:142);place(duplicate_view,98);place(retention_button,104);place(btn_basic,112);place(btn_apply,120);
+     if(x>margin||!guided())y+=40;
+     move(selection_context,margin,y,width,26);y+=30;
      move(list,margin,y,width,std::max(80,H-y-41));
      if(resize_columns){
          const int available=width-GetSystemMetrics(SM_CXVSCROLL)-6;
@@ -835,10 +896,10 @@ struct App {
      move(status,margin,H-32,width,23);
      if(workflow==Workflow::Home||(!ready()&&!busy)){
          const bool home=workflow==Workflow::Home;
-         const int center=std::max(90,(H-300)/2),left=(W-520)/2;
+         const int center=std::max(84,(H-300)/2),left=(W-520)/2;
          move(welcome_title,margin,center,width,40);move(welcome_detail,margin,center+45,width,30);
          if(home){
-             move(task_space,left,center+90,520,42);move(task_dup,left,center+142,520,42);move(task_backup,left,center+194,520,42);
+             move(old_home,left,center+88,520,52);move(task_space,left,center+162,166,38);move(task_dup,left+177,center+162,166,38);move(task_backup,left+354,center+162,166,38);
          }else{
              move(root_box,left,center+92,390,33);move(btn_browse,left+398,center+92,122,33);
              if(workflow==Workflow::Backup){move(target_box,left,center+137,390,33);move(target_browse,left+398,center+137,122,33);}
@@ -856,12 +917,12 @@ struct App {
      RECT rc{};GetClientRect(hwnd,&rc);const int W=rc.right,H=rc.bottom;
      const int margin=W<980?14:24;
      solid(dc,rc,kPage);solid(dc,RECT{0,0,W,58},kNavy);
-     const auto heading=workflow==Workflow::Home?std::wstring(kProductName):std::wstring(kProductName)+L"  /  "+task_name();
+     const auto heading=workflow==Workflow::Home?std::wstring(kProductName):std::wstring(kProductName)+L"  /  "+(guided()&&ready()?old_step_name(old_step):task_name());
      label_at(dc,bold_font,heading,margin,10,W-2*margin-226,38,RGB(248,250,252));
      if(has_scan||full_overview())solid(dc,RECT{margin,H-39,W-margin,H-38},RGB(205,216,227));
  }
  void change_view(int n,bool reset_view=false){
-     if(n<0||n>12)return;
+     if(n<0||n>OldGroupFiles)return;
      if(n!=view||reset_view){
          restoring_selection=true;ListView_SetItemState(list,-1,0,LVIS_SELECTED|LVIS_FOCUSED);restoring_selection=false;
          sort_column=n==7?0:2;sort_desc=n!=5;
@@ -904,6 +965,7 @@ struct App {
  void refresh(){
      saved_selection_keys=selection_keys();rebuilding_rows=true;source_filtered=false;restoring_selection=true;
      ListView_SetItemState(list,-1,0,LVIS_SELECTED|LVIS_FOCUSED);restoring_selection=false;rows.clear();
+     if(guided()&&has_scan&&old_rows()){rebuild();return;}
      if(full_overview()){
          const auto typed=low(get_text(search));
          constexpr size_t cap=5000;
@@ -1159,7 +1221,7 @@ struct App {
              }
              if(!retirement_summary.blocked.empty()){
                  rows.push_back({L"留在原位",fmt(retirement_summary.source_folder),
-                     std::to_wstring(retirement_summary.blocked.size())+L" 项",L"所选目录外的保留副本不足"});
+                     std::to_wstring(retirement_summary.blocked.size())+L" 项",guided()&&old_step==3?L"已核实的独立归档副本不足":L"所选目录外的保留副本不足"});
                  for(const auto& file:retirement_summary.blocked)
                      rows.push_back({L"跳过清退",fmt(file),L"",L"保留在原目录"});
              }
@@ -1233,13 +1295,15 @@ struct App {
      if(full_overview())note+=L" · 所选磁盘已索引 "+std::to_wstring(all_scan.total_files)+L" 文件 · "+std::to_wstring(all_scan.hash_candidates.size())+L" 组重复候选";
      if(backup_result())note+=L" · 原资料 "+fmt(backup.source)+L" → 备份 "+fmt(backup.target);
      else if(workflow==Workflow::Space&&has_scan)note+=L" · "+fmt(root/space_folder)+L" · 范围内 "+std::to_wstring(inv.files.size())+L" 个文件";
+     else if(guided()&&old_metadata)note+=L" · 已快速盘点 · "+fmt(root);
      else if(history_only)note+=L" · "+fmt(root);
      else if(has_scan){
          if(!dup.errors.empty())note=L"副本核验不完整 · "+note;
          note+=L" · "+std::to_wstring(inv.files.size())+L" 个文件，"+bytes(inv.bytes)+L" · "+std::to_wstring(exact_ready?dup.groups.size():hash_duplicates.groups.size())+
              (exact_ready?L" 组精确副本":L" 组重复候选")+L" · 当前范围 "+root.wstring();
      }
-     if(const size_t issues=scan_issue_count()){
+     if(const size_t issues=scan_issue_count();issues&&guided()){note=L"有 "+std::to_wstring(issues)+L" 项未读取，可在第一步查看详情 · "+note;}
+     else if(issues){
          note=L"扫描不完整 · "+std::to_wstring(issues)+L" 项异常，可从「更多操作 → 查看扫描情况」查看路径 · "+note;
      }
      for(int i=0;i<int(visible.size());++i)if(keys.count(row_key(rows[visible[size_t(i)]])))ListView_SetItemState(list,i,LVIS_SELECTED,LVIS_SELECTED);
@@ -1251,7 +1315,7 @@ struct App {
      if(busy)return;
      if(worker.joinable())worker.join();
      cancel.store(false);active_task=task;
-     const bool cancellable=task==Task::Space||task==Task::Backup||task==Task::Scan||task==Task::ScanAll||task==Task::Verify||task==Task::Pair||task==Task::MergePlan||task==Task::Suggest||task==Task::Structure||task==Task::Photo||task==Task::Relations||task==Task::ArchivePlan||task==Task::QuarantinePlan||task==Task::CleanPlan||task==Task::RenamePlan||task==Task::RetirementPlan;
+     const bool cancellable=task==Task::ArchivedRetirePlan||task==Task::OldRefresh||task==Task::SelectedCopyPlan||task==Task::Space||task==Task::Backup||task==Task::Scan||task==Task::ScanAll||task==Task::Verify||task==Task::Pair||task==Task::MergePlan||task==Task::Suggest||task==Task::Structure||task==Task::Photo||task==Task::Relations||task==Task::ArchivePlan||task==Task::QuarantinePlan||task==Task::CleanPlan||task==Task::RenamePlan||task==Task::RetirementPlan;
      job_started=GetTickCount64();job_finished=0;speed_tick=job_started;speed_bytes=0;speed_files=0;recent_speed=0;recent_file_rate=0;speed_root=0;
      {std::lock_guard<std::mutex> lock(progress_mutex);progress_snapshot={};progress_snapshot.root=root;
       progress_snapshot.root_index=1;progress_message.clear();last_progress_tick=job_started;}
@@ -1263,19 +1327,36 @@ struct App {
      const auto plan=pending;const auto merge=pending_merge;const auto structplan=pending_structure;
      const auto structproposal=structure_suggestion;const auto archive=archive_request;
      const auto photo_scope=workflow==Workflow::Space?selected_dir:fs::path{};
-     const auto policy=retention_policy;const auto files=requested_files;const auto rename=rename_request;
-     if(task==Task::Structure||task==Task::StructurePlan||task==Task::MergePlan||task==Task::ArchivePlan||task==Task::RetirementPlan||task==Task::QuarantinePlan||task==Task::CleanPlan||task==Task::RenamePlan){
+     auto policy=retention_policy;
+     if(guided()){policy.min_active_copies=static_cast<unsigned>(old_keep);policy.verify_bytes_before_change=true;policy.distinct_file_objects=true;}
+     const auto files=requested_files;const auto rename=rename_request;
+     if(task==Task::SelectedCopyPlan||task==Task::Structure||task==Task::StructurePlan||task==Task::MergePlan||task==Task::ArchivePlan||task==Task::RetirementPlan||task==Task::QuarantinePlan||task==Task::CleanPlan||task==Task::RenamePlan){
          has_pending=false;pending={};pending_merge={};pending_structure={};pending_is_merge=false;pending_is_structure=false;
      }
      auto request_source=requested_source,request_destination=requested_destination,request_retirement=requested_retirement;
      const dc::Inventory* invref=&inv;bool clean_has_scan=has_scan;int distance=photo_distance;
+     const bool old=guided();
+     if(old&&(task==Task::Space||task==Task::Scan)){
+         old_mount.reset();
+         std::wstring mount(32768,0);DriveChoice choice;
+         if(GetVolumePathNameW(selected_root.c_str(),mount.data(),DWORD(mount.size()))&&read_drive(fs::path(mount.c_str()),choice)&&
+            (!choice.guid.empty()||choice.serial!=0))old_mount=std::move(choice);
+     }
+     if(old&&task==Task::Scan)old_forget_archive();
+     const auto archived=task==Task::ArchivedRetirePlan?old_archive:std::shared_ptr<const dc::StructurePlan>{};
+     const auto archive_keep=old_archive_keep;
+     const auto guard_mount=old_mount;
+     const auto guard_identity=old?inv.root_identity:std::string{};
+     const auto changed=task==Task::OldRefresh?old_changed:std::vector<fs::path>{};
+     std::vector<dc::StructureRule> chosen_rules;fs::path chosen_output;
+     if(task==Task::SelectedCopyPlan){chosen_rules=old_rules[old_step-3];chosen_output=old_outputs[old_step-3];}
      const bool missing_only=workflow==Workflow::Backup;const bool copy_archive=workflow==Workflow::Space;
-     if(task==Task::Space||task==Task::Backup||task==Task::Scan||task==Task::ScanAll){
+     if(task==Task::Space||task==Task::Backup||(task==Task::Scan&&!(old&&old_metadata))||task==Task::ScanAll){
          reset_inventory();
          previous_file_edit={};file_edit_in_progress=false;refresh();refresh_navigation();
      }
      worker=std::thread([this,task,selected_root,plan,merge,structplan,structproposal,archive,policy,files,rename,
-          request_source,request_destination,request_retirement,invref,clean_has_scan,distance,frozen_drives,scanning_drives,missing_only,photo_scope,copy_archive]() mutable {
+          request_source,request_destination,request_retirement,invref,clean_has_scan,distance,frozen_drives,scanning_drives,missing_only,photo_scope,copy_archive,old,changed,writing,guard_mount,guard_identity,archived,archive_keep,chosen_rules=std::move(chosen_rules),chosen_output]() mutable {
          auto result=std::make_unique<JobResult>();result->task=task;
          const auto progress=[this](const std::string& message){record_message(message);};
          const auto structured=[this](const dc::ScanProgress& snapshot){record_progress(snapshot);};
@@ -1284,7 +1365,26 @@ struct App {
              snapshot.phase=dc::ScanPhase::Analyzing;snapshot.current_file.clear();structured(snapshot);progress(message);
          };
          try{
-             if(task==Task::Space)result->space=dc::scan_space(selected_root,structured,&cancel);
+             if(old&&(writing||task==Task::OldRefresh||task==Task::ArchivedRetirePlan)){
+                 if(guard_mount&&!same_drive(*guard_mount))throw std::runtime_error("磁盘已更换或断开，请返回首页重新选择。");
+                 if(!guard_identity.empty()&&dc::old_disk_directory_id(selected_root)!=guard_identity)
+                     throw std::runtime_error("资料目录已更换或不可读取，请重新盘点。");
+                 if(guard_identity.empty()&&!guard_mount)throw std::runtime_error("无法确认当前磁盘与盘点时相同，本次仅供只读核对。");
+             }
+             if(task==Task::OldRefresh||(task==Task::Scan&&old)){
+                 if(task==Task::OldRefresh)result->inventory=dc::refresh_old_disk(*invref,changed,progress,&cancel,structured);
+                 else result->inventory=dc::scan_hashed(selected_root,progress,&cancel,structured);
+                 if(guard_mount&&!same_drive(*guard_mount))throw std::runtime_error("扫描期间磁盘已更换或断开，请重新选择。");
+                 analyzing("Reviewing duplicate files and possible backup directories");
+                 result->hash_duplicates=hash_groups(result->inventory);
+                 result->old_overview=dc::inspect_old_disk(result->inventory,&cancel);
+             }else if(task==Task::Space){
+                 result->space=dc::scan_space(selected_root,structured,&cancel);
+                 if(old){
+                     if(guard_mount&&!same_drive(*guard_mount))throw std::runtime_error("磁盘在快速盘点期间已断开或更换。");
+                     result->old_overview=dc::describe_old_disk_folders(result->space.inventory,&cancel);
+                 }
+             }
              else if(task==Task::Backup)result->backup=dc::compare_backups(request_source,request_destination,progress,&cancel,structured);
              else if(task==Task::Scan||task==Task::ScanAll){
                  std::vector<fs::path> roots;
@@ -1304,6 +1404,7 @@ struct App {
                  if(task==Task::Scan){
                      result->inventory=std::move(result->full_scan.volumes.front());
                      result->hash_duplicates=hash_groups(result->inventory);
+
                  }
              }else if(task==Task::Verify){
                  if(!clean_has_scan)throw std::runtime_error("Scan first");
@@ -1334,13 +1435,18 @@ struct App {
                      result->photos=dc::similar_photos(local,distance,progress,&cancel);
                  }}
              else if(task==Task::Relations){if(!clean_has_scan)throw std::runtime_error("Scan first");result->overlaps=dc::find_overlapping_dirs(*invref,500,&cancel);}
+             else if(task==Task::ArchivedRetirePlan){
+                 if(!archived)throw std::runtime_error("归档记录已失效。");
+                 result->retirement=dc::plan_retire_archived_files(selected_root,*archived,archive_keep,&cancel);
+             }
+             else if(task==Task::SelectedCopyPlan){result->structure_plan=dc::plan_selected_structure(*invref,chosen_output,chosen_rules,&cancel);}
              else if(task==Task::ArchivePlan){if(!clean_has_scan)throw std::runtime_error("Scan first");if(copy_archive)result->structure_plan=dc::plan_archive_copy(*invref,archive,progress,&cancel);
                  else result->plan=dc::plan_archive(*invref,archive,progress,&cancel);}
              else if(task==Task::MergePlan){if(!clean_has_scan)throw std::runtime_error("Scan first");result->merge_plan=missing_only?dc::plan_hashed_directory_merge(*invref,request_source,request_destination,progress,&cancel,structured,dc::MergeMode::MissingOnly):
                  dc::plan_hashed_directory_merge(*invref,request_source,request_destination,progress,&cancel,structured);}
              else if(task==Task::StructurePlan){if(!clean_has_scan)throw std::runtime_error("Scan first");result->structure_plan=dc::plan_structure(*invref,structproposal);}
              else if(task==Task::RetirementPlan){if(!clean_has_scan)throw std::runtime_error("Scan first");result->retirement=dc::plan_retire_hashed_directory(*invref,request_retirement,policy);if(cancel.load())throw std::runtime_error("Operation canceled");}
-             else if(task==Task::QuarantinePlan){result->plan=dc::plan_quarantine_hashed_selected(*invref,files,policy);if(cancel.load())throw std::runtime_error("Operation canceled");}
+             else if(task==Task::QuarantinePlan){result->plan=old?dc::plan_reviewed_duplicate_group(*invref,files,policy,&cancel):dc::plan_quarantine_hashed_selected(*invref,files,policy);if(cancel.load())throw std::runtime_error("Operation canceled");}
              else if(task==Task::CleanPlan){result->plan=dc::plan_clean_hashed_duplicates(*invref,policy);if(cancel.load())throw std::runtime_error("Operation canceled");}
              else if(task==Task::RenamePlan){result->plan=dc::plan_rename(*invref,rename);if(cancel.load())throw std::runtime_error("Operation canceled");}
              else if(task==Task::Apply)result->result=dc::execute_plan(selected_root,plan);
@@ -1360,7 +1466,7 @@ struct App {
      if(!result->error.empty()){
          const bool write_failed=result->task==Task::Apply||result->task==Task::MergeApply||
              result->task==Task::StructureApply||result->task==Task::Undo;
-         if(write_failed){clear_analysis();results_stale=true;change_view(7);}
+         if(write_failed){old_changed.clear();old_forget_archive();clear_analysis();results_stale=true;change_view(7);}
          finish_progress(false,cancel.load());deferred_command=0;deferred_paths.clear();
          if(write_failed){
              SetWindowTextW(progress_stage,L"操作异常终止 · 当前扫描结果已过期");
@@ -1369,12 +1475,19 @@ struct App {
          if(result->task==Task::StructurePlan&&file_edit_in_progress){
              structure_suggestion=std::move(previous_file_edit);file_edit_in_progress=false;change_view(11);
          }
+         if(guided()&&result->task==Task::Scan)old_requested_step.reset();
+         if(result->task==Task::OldRefresh){old_changed.clear();old_forget_archive();refresh_navigation();}
          if(!cancel.load()||write_failed)alert(hwnd,L"任务未完成：\n"+wutf8(result->error)+
              (write_failed?L"\n\n文件可能已部分改变，当前结果已过期；未自动重扫。请检查历史并显式重新扫描。":L""),MB_ICONWARNING);
          status_text(write_failed?L"操作异常终止 · 结果已过期，请检查历史并重新扫描":
              cancel.load()?L"已停止本次任务":L"任务未完成，请检查提示后重试");return;
      }
      if(result->task==Task::Space){
+         if(guided()){
+             inv=std::move(result->space.inventory);root=inv.root;recent_root=root;has_scan=true;
+             old_metadata=true;old_overview=std::move(result->old_overview);old_saved=dc::old_disk_step(root);
+             old_display(OldOverview);finish_progress(true);return;
+         }
          space=std::move(result->space);inv=std::move(space.inventory);root=inv.root;recent_root=root;has_scan=true;
          change_view(1,true);finish_progress(true);return;
      }
@@ -1390,11 +1503,23 @@ struct App {
          root.clear();scope_view=3;view=2;
          if(all_scan.volumes.size()==1&&all_scan.errors.empty())focus_volume(0);else {refresh();refresh_navigation();}
          finish_progress(true);
-     }else if(result->task==Task::Scan){
+     }else if(result->task==Task::Scan||result->task==Task::OldRefresh){
          inv=std::move(result->inventory);observations=std::move(result->observations);observation_volume=0;
          hash_duplicates=std::move(result->hash_duplicates);has_scan=true;root=inv.root;
-         recent_root=root;change_view(2,true);
+         recent_root=root;
+         if(guided()){
+             old_changed.clear();results_stale=false;old_metadata=false;
+             if(old_requested_step){old_step=*old_requested_step;dc::save_old_disk_step(root,old_step);old_requested_step.reset();}
+             old_overview=std::move(result->old_overview);old_saved=dc::old_disk_step(root);
+             if(result->task==Task::Scan){old_rules[0].clear();old_rules[1].clear();}
+             old_folder.clear();change_view(old_main_view(),true);
+         }else change_view(2,true);
          finish_progress(true);
+         if(result->task==Task::OldRefresh&&old_retire_after_refresh){
+             old_retire_after_refresh=false;
+             if(old_has_archive()&&need_scan())start(Task::ArchivedRetirePlan);
+         }
+         return;
      }else if(result->task==Task::Verify){
          inv=std::move(result->inventory);dup=std::move(result->duplicates);dupdirs=std::move(result->dirs);
          exact_ready=inv.complete()&&dup.errors.empty();const int command=deferred_command;
@@ -1405,16 +1530,16 @@ struct App {
          return;
      }else if(result->task==Task::Pair){
          pair_report=std::move(result->pair);has_comparison=true;
-         change_view(8);finish_progress(true);present_pair_report();return;
+         change_view(8);finish_progress(true);if(!guided())present_pair_report();return;
      }else if(result->task==Task::Suggest){suggestions=std::move(result->suggestions);suggestions_ready=true;change_view(10);}
      else if(result->task==Task::Structure){structure_suggestion=std::move(result->structure);structure_ready=true;structure_rejected=false;change_view(11);}
      else if(result->task==Task::Photo){photos=std::move(result->photos);photos_ready=true;change_view(5);}
      else if(result->task==Task::Relations){overlaps=std::move(result->overlaps);relations_ready=true;change_view(4);}
-     else if(result->task==Task::ArchivePlan&&workflow==Workflow::Space)preview_structure(std::move(result->structure_plan));
+     else if(result->task==Task::SelectedCopyPlan||(result->task==Task::ArchivePlan&&workflow==Workflow::Space))preview_structure(std::move(result->structure_plan));
      else if(result->task==Task::ArchivePlan||result->task==Task::QuarantinePlan||result->task==Task::CleanPlan||result->task==Task::RenamePlan)make_preview(std::move(result->plan));
      else if(result->task==Task::MergePlan)preview_merge(std::move(result->merge_plan));
      else if(result->task==Task::StructurePlan){file_edit_in_progress=false;previous_file_edit={};preview_structure(std::move(result->structure_plan));}
-     else if(result->task==Task::RetirementPlan){retirement_summary=std::move(result->retirement);make_preview(retirement_summary.quarantine);}
+     else if(result->task==Task::RetirementPlan||result->task==Task::ArchivedRetirePlan){retirement_summary=std::move(result->retirement);make_preview(retirement_summary.quarantine);}
      else{
          const bool applied=result->result.success;
          // A completed or interrupted mutation invalidates the entire displayed
@@ -1422,6 +1547,26 @@ struct App {
          // terabyte drive after moving a handful of files.
          const bool undo=result->task==Task::Undo;
          const auto summary=undo?PreviewSummary{L"撤销上一次操作",fmt(root),L"",L""}:describe_preview();
+         if(guided()){
+             old_forget_archive();old_changed.clear();
+             if(applied){
+                 old_writes.push_back(summary.title+L" · "+summary.changes);
+                 if(pending_is_merge)old_changed={pending_merge.source,pending_merge.destination};
+                 else if(pending_is_structure){
+                     old_changed={pending_structure.output_base};
+                     if(old_step==3||old_step==4)old_rules[old_step-3].clear();
+                     if(old_step==3&&result->task==Task::StructureApply&&pending_structure.selected_sources&&!pending_structure.mappings.empty()){
+                         old_archive=std::make_shared<dc::StructurePlan>(std::move(pending_structure));
+                         old_archive_root=root;
+                     }
+                 }
+                 else if(!undo)for(const auto& move:pending.moves){
+                     old_changed.push_back(move.from);
+                     if(!preview_is_quarantine())old_changed.push_back(move.to);
+                     old_changed.insert(old_changed.end(),move.keepers.begin(),move.keepers.end());
+                 }
+             }
+         }
          clear_analysis();results_stale=true;change_view(7);finish_progress(applied);
          const auto stage=summary.title+(applied?L"已完成 · 结果已过期":L"未完全成功 · 结果已过期");
          SetWindowTextW(progress_stage,stage.c_str());
@@ -1500,6 +1645,10 @@ struct App {
      auto p=get_text(root_box);if(p.empty()){browse();p=get_text(root_box);}if(p.empty())return;
      std::error_code ec;auto abs=fs::absolute(fs::path(p),ec);if(ec||!fs::is_directory(abs,ec)){alert(hwnd,L"选择的目录不存在，或无法访问。",MB_ICONWARNING);return;}
      if(has_pending&&MessageBoxW(hwnd,L"重新扫描将清除当前操作预览。继续吗？",kProductName,MB_YESNO|MB_ICONQUESTION)!=IDYES)return;
+     if(guided()&&has_scan&&((old_mount&&!same_drive(*old_mount))||
+        (!inv.root_identity.empty()&&inv.root_identity!=dc::old_disk_directory_id(abs)))){
+         alert(hwnd,L"此位置的磁盘或资料目录已经改变。请返回首页，为新范围开始一次整理。",MB_ICONWARNING);return;
+     }
      root=abs.lexically_normal();
      if(workflow==Workflow::History){reset_inventory();history_only=true;has_scan=true;recent_root=root;change_view(7,true);return;}
      if(workflow==Workflow::Backup){
@@ -1509,7 +1658,7 @@ struct App {
          }
          start(Task::Backup);return;
      }
-     start(workflow==Workflow::Space?Task::Space:Task::Scan);
+     start(workflow==Workflow::Space||(guided()&&!has_scan&&old_metadata)?Task::Space:Task::Scan);
  }
  static std::wstring history_state(const std::string& state){
      static const std::map<std::string,std::wstring> labels={
@@ -1527,7 +1676,7 @@ struct App {
      if(label=="Archive by file type")return L"按文件类型归档";
      if(label=="Archive by photo date")return L"按日期归档";
      for(const auto& entry:{
-         std::pair<const char*,const wchar_t*>{"Merge directories: Structure reorganization -> ",L"构建整理目录  "},
+         std::pair<const char*,const wchar_t*>{"Merge directories: Structure reorganization -> ",L"复制整理到  "},
          {"Merge directories: Archive by copy -> ",L"复制归档  "},{"Merge directories: ",L"融合目录  "},{"Undo: ",L"撤销记录  "},
          {"Corrupt or unreadable journal: ",L"操作日志无法读取  "}
      }){
@@ -1591,8 +1740,14 @@ struct App {
          if(pending_is_structure)changes+=L" · "+bytes(pending_structure.bytes_to_copy);
          if(conflicts)changes+=L" · "+std::to_wstring(conflicts)+L" 处同名冲突，另存版本";
          if(pending_is_merge&&pending_merge.skipped_conflicts)changes+=L" · 保留 "+std::to_wstring(pending_merge.skipped_conflicts)+L" 处差异供核对";
-         return {pending_is_structure?(pending_structure.archive_source?L"复制整理文件":L"构建整理目录"):workflow==Workflow::Backup?L"补齐备份":L"融合两个目录",location,changes,
+         return {pending_is_structure?(guided()?(old_step==3?L"复制归档所选资料":L"按新结构复制所选资料"):pending_structure.archive_source?L"复制整理文件":L"构建整理目录"):workflow==Workflow::Backup?L"补齐备份":L"融合两个目录",location,changes,
              has_pending?L"源文件保留，已有文件受保护。普通撤销不会移除本次复制的文件。":L"无需新增文件或目录，可返回结果继续浏览。"};
+     }
+     if(preview_is_quarantine()&&guided()&&old_step==3&&old_has_archive()){
+         return {L"收起已归档原件",(root/old_archive->output_base).wstring(),
+             L"拟隔离 "+std::to_wstring(pending.moves.size())+L" 个原文件 · "+bytes(retirement_summary.staged_bytes)+
+             L" · 留在原位 "+std::to_wstring(retirement_summary.blocked.size())+L" 个",
+             L"每个移出的原件至少保留 "+std::to_wstring(pending.retention.min_active_copies)+L" 份已核实的独立归档文件。移入可恢复隔离区，仍占用磁盘空间。"};
      }
      if(preview_is_quarantine()){
          const auto& policy=pending.retention;
@@ -1627,7 +1782,7 @@ struct App {
              L"当前条件没有产生路径变更，可调整命名或归档条件后重新预览。"};
  }
  void make_preview(dc::Plan plan){
-     if(plan.name.rfind("Quarantine verified duplicate files from ",0)!=0)retirement_summary={};
+     if(plan.name.rfind("Quarantine verified duplicate files from ",0)!=0&&!(guided()&&old_step==3&&old_has_archive()))retirement_summary={};
      pending_is_merge=false;pending_is_structure=false;pending_merge={};pending_structure={};
      pending=std::move(plan);has_pending=!pending.moves.empty();
      change_view(9,true);
@@ -1984,6 +2139,7 @@ struct App {
  }
  void context_click(){
      if(busy||!ready())return;
+     if(guided()){old_action();return;}
      if(view==7){do_undo();return;}
      if(results_stale)return;
      if(space_result()){do_archive();return;}
@@ -2001,6 +2157,7 @@ struct App {
          AppendMenuW(menu,MF_STRING|((ready&&enabled&&(!results_stale||read_only))?MF_ENABLED:MF_GRAYED),UINT_PTR(id),text);
      };
      auto sep=[&]{AppendMenuW(menu,MF_SEPARATOR,0,nullptr);};
+     if(guided()){item(ID_EXPORT,L"导出当前清单…");return menu;}
      if(view==9){if(pending_is_structure&&!pending_structure.archive_source)item(ID_MAP_EDIT,L"编辑所选映射…",selected);item(ID_EXPORT,L"导出预览…");return menu;}
      if(view==7){item(ID_EXPORT,L"导出操作记录…");return menu;}
      if(workflow==Workflow::Backup){item(ID_EXPORT,L"导出差异清单…");return menu;}
@@ -2071,6 +2228,13 @@ struct App {
      if(space_result()&&!results_stale&&row.suggestion==1){
          space_folder=row.launch;SetWindowTextW(search,L"");change_view(1,true);return;
      }
+     if(guided()){
+         if(results_stale)return;
+         if(view==OldSources&&row.suggestion==1){old_folder=row.launch;change_view(OldSources,true);return;}
+         if(view==OldPairs||view==OldGroups||view==OldRules){old_action();return;}
+         if(!row.launch.empty())reveal_in_explorer(root/row.launch);
+         return;
+     }
      if(!full_overview()&&!results_stale){
          if(view==9&&pending_is_structure&&!pending_structure.archive_source&&!row.launch.empty()){do_file_map_edit(row.launch);return;}
          if(view==10&&row.suggestion>=0){do_suggestion(size_t(row.suggestion));return;}
@@ -2119,6 +2283,15 @@ struct App {
      display_font=CreateFontW(-25,0,0,0,FW_SEMIBOLD,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH,L"Microsoft YaHei UI");
      small_font=CreateFontW(-14,0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH,L"Microsoft YaHei UI");
      page_brush=CreateSolidBrush(kPage);
+     old_home=create(hwnd,L"BUTTON",L"整理一块旧盘",BS_DEFPUSHBUTTON|WS_TABSTOP,ID_TASK_OLD);
+     old_back=create(hwnd,L"BUTTON",L"上一步",BS_PUSHBUTTON|WS_TABSTOP,ID_OLD_BACK);
+     old_next=create(hwnd,L"BUTTON",L"下一步",BS_PUSHBUTTON|WS_TABSTOP,ID_OLD_NEXT);
+     old_resume=create(hwnd,L"BUTTON",L"继续上次进度",BS_PUSHBUTTON|WS_TABSTOP,ID_OLD_RESUME);
+     old_extra=create(hwnd,L"BUTTON",L"",BS_PUSHBUTTON|WS_TABSTOP,ID_OLD_EXTRA);
+     old_retire=create(hwnd,L"BUTTON",L"收起归档原件…",BS_PUSHBUTTON|WS_TABSTOP,ID_OLD_RETIRE);
+     old_remove=create(hwnd,L"BUTTON",L"移出清单",BS_PUSHBUTTON|WS_TABSTOP,ID_OLD_REMOVE);
+     set_font(old_home,bold_font);
+     for(HWND h:{old_back,old_next,old_resume,old_extra,old_remove,old_retire})set_font(h,font);
      task_space=create(hwnd,L"BUTTON",L"看空间占用",BS_PUSHBUTTON|WS_TABSTOP,ID_TASK_SPACE);
      task_dup=create(hwnd,L"BUTTON",L"找重复文件",BS_PUSHBUTTON|WS_TABSTOP,ID_TASK_DUP);
      task_backup=create(hwnd,L"BUTTON",L"核对两份备份",BS_PUSHBUTTON|WS_TABSTOP,ID_TASK_BACKUP);
@@ -2162,7 +2335,7 @@ struct App {
      for(HWND h:{welcome_detail,choose_disks,duplicate_view,clear_filter})set_font(h,font);
      SendMessageW(root_box,EM_SETCUEBANNER,TRUE,(LPARAM)L"输入或粘贴文件夹路径");
      set_font(progress_stage,bold_font);EnableWindow(root_box,FALSE);EnableWindow(btn_stop,FALSE);
-     SetTimer(hwnd,1,250,nullptr);refresh();refresh_navigation();SetFocus(task_space);
+     SetTimer(hwnd,1,250,nullptr);refresh();refresh_navigation();SetFocus(old_home);
  }
  ~App(){cancel.store(true);if(worker.joinable())worker.join();if(font)DeleteObject(font);if(bold_font)DeleteObject(bold_font);if(display_font)DeleteObject(display_font);if(small_font)DeleteObject(small_font);if(page_brush)DeleteObject(page_brush);}
 };
@@ -2196,10 +2369,12 @@ LRESULT CALLBACK main_proc(HWND hwnd,UINT msg,WPARAM w,LPARAM l){
                 }
                 // Focus, edit and combo notifications are not action commands.
                 if(HIWORD(w)!=BN_CLICKED)return 0;
+                if(id==ID_TASK_OLD){app->select_task(Workflow::OldDisk);return 0;}
+                if(id==ID_OLD_BACK||id==ID_OLD_NEXT||id==ID_OLD_RESUME||id==ID_OLD_EXTRA||id==ID_OLD_REMOVE||id==ID_OLD_RETIRE){app->old_command(id);return 0;}
                 if(id==ID_TASK_SPACE||id==ID_TASK_DUP||id==ID_TASK_BACKUP||id==ID_HOME){
                     app->select_task(id==ID_TASK_SPACE?Workflow::Space:id==ID_TASK_DUP?Workflow::Duplicates:id==ID_TASK_BACKUP?Workflow::Backup:Workflow::Home);
                 }else if(id==ID_CONTEXT_ACTION)app->context_click();
-                else if(id==ID_RETENTION)app->run_action(CMD_POLICY);
+                else if(id==ID_RETENTION){if(app->guided())app->old_retention();else app->run_action(CMD_POLICY);}
                 else if(id==ID_BROWSE_TARGET)app->browse(app->target_box);
                 else if(id==ID_BACK_RESULT){if(app->space_result()&&!app->space_folder.empty()){
                     app->space_folder=app->space_folder.parent_path();app->change_view(1,true);

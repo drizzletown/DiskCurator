@@ -1,4 +1,4 @@
-#include "core.hpp"
+#include "reviewed_duplicates.hpp"
 #include <algorithm>
 #include <limits>
 #include <stdexcept>
@@ -71,6 +71,34 @@ void annotate_hash_plan(Plan& plan) {
         "Preview uses full-scan SHA-256 candidates only. Actual source and retained-copy bytes will be compared during execution according to the selected keeper policy.":
         "Preview uses full-scan SHA-256 candidates only. You selected metadata/hash-only execution: file contents will NOT be re-read before quarantine.");
 }
+}
+Plan plan_reviewed_duplicate_group(const Inventory& inventory,const std::vector<fs::path>& selected,
+                                  RetentionPolicy policy,const std::atomic_bool* cancel) {
+    if(selected.empty())throw std::runtime_error("请选择同一组中需要隔离的文件。");
+    const auto check_cancel=[&]{if(cancel&&cancel->load())throw std::runtime_error("Operation canceled");};
+    const auto first=std::find_if(inventory.files.begin(),inventory.files.end(),[&](const File& f){
+        check_cancel();return f.rel==selected.front();
+    });
+    if(first==inventory.files.end()||first->sha256.size()!=64||
+       first->sha256.find_first_not_of("0123456789abcdef")!=std::string::npos)
+        throw std::runtime_error("无法核对所选文件，请重新盘点。");
+    Inventory group;
+    group.root=inventory.root;
+    for(const auto& file:inventory.files) {
+        check_cancel();
+        if(file.bytes!=first->bytes||file.sha256!=first->sha256)continue;
+        if(file.rel.empty()||!is_inside(file.rel))throw std::runtime_error("扫描结果含无效路径。");
+        group.files.push_back(file);
+        group.bytes+=file.bytes;
+    }
+    // Deduplication reads this group's candidate bytes. The existing planner
+    // rejects paths outside the verified group and insufficient independent keepers.
+    auto verified=deduplicate(group,{},cancel);
+    policy.min_active_copies=std::max(1u,policy.min_active_copies);
+    policy.distinct_file_objects=true;
+    policy.verify_bytes_before_change=true;
+    policy.allow_zero_active=false;
+    return plan_quarantine_selected(group,verified,selected,policy);
 }
 Plan plan_quarantine_hashed_selected(const Inventory& inv,const std::vector<fs::path>& selected,RetentionPolicy policy) {
     auto snapshot=planning_snapshot(inv);

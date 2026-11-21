@@ -45,6 +45,13 @@ int main(){
                                                {},nullptr,{},MergeMode::MissingOnly);
         assert(plan.copies.size()==1&&plan.directories.size()==1&&plan.identical==1&&plan.skipped_conflicts==1);
         assert(!fs::exists(root/".DiskCurator-System")&&!fs::exists(target/"only-source"));
+        auto full_merge=plan_hashed_directory_merge(result.merge_inventory,result.source_relative,result.target_relative);
+        for(const auto& copy:full_merge.copies)assert(copy.expected_sha256.size()==64);
+        const auto version_stamp=fs::last_write_time(source/"name");
+        put(source/"name","other");fs::last_write_time(source/"name",version_stamp);
+        assert(!execute_merge_plan(result.merge_inventory.root,full_merge).success);
+        assert(!fs::exists(target/"name (from first)")&&!fs::exists(target/"only-source"));
+        put(source/"name","newer");fs::last_write_time(source/"name",version_stamp);
         const auto initial_stamp=fs::last_write_time(source/"only-source");
         put(source/"only-source","edit");fs::last_write_time(source/"only-source",initial_stamp);
         assert(!execute_merge_plan(result.merge_inventory.root,plan).success);

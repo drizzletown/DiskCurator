@@ -1,4 +1,7 @@
-#include "core.hpp"
+#include "old_disk_refresh.hpp"
+#ifndef _WIN32
+#include <sys/stat.h>
+#endif
 #include <algorithm>
 #include <cstdio>
 #include <array>
@@ -328,19 +331,53 @@ std::string sha256_text(const std::string& text){
  Sha256 digest;digest.update(text.data(),text.size());return digest.finish();
 }
 fs::path hash_cache_root(){return index_dir();}
-std::string sha256_file(const fs::path& path,U64 size,fs::file_time_type mtime){
+std::string sha256_file(const fs::path& path,U64 size,fs::file_time_type mtime,const std::atomic_bool* cancel){
  FileDigest digest;std::vector<char> buffer(1024U*1024U);
  const ScanProgressCallback no_status;const Progress no_text;
  ScanReporter reporter(path,no_status,no_text);
- return hash_file(path,size,mtime,digest,buffer,reporter,nullptr);
+ return hash_file(path,size,mtime,digest,buffer,reporter,cancel);
 }
-Inventory scan_hashed(const fs::path& root,const Progress& progress,const std::atomic_bool* cancel,
-                      const ScanProgressCallback& scan_progress,bool persist_index){
+std::string old_disk_directory_id(const fs::path& root) {
+ if(root.empty())return {};
+#ifdef _WIN32
+ HANDLE handle=CreateFileW(extended_path(root).c_str(),FILE_READ_ATTRIBUTES,
+     FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,nullptr,OPEN_EXISTING,
+     FILE_FLAG_BACKUP_SEMANTICS|FILE_FLAG_OPEN_REPARSE_POINT,nullptr);
+ if(handle==INVALID_HANDLE_VALUE)return {};
+ BY_HANDLE_FILE_INFORMATION info{};
+ const bool read=GetFileInformationByHandle(handle,&info)!=0;
+ CloseHandle(handle);
+ if(!read||!(info.dwFileAttributes&FILE_ATTRIBUTE_DIRECTORY)||(info.dwFileAttributes&FILE_ATTRIBUTE_REPARSE_POINT)||
+    !info.dwVolumeSerialNumber)return {};
+ // Some removable file systems do not expose a directory file index. Bind the
+ // volume's serial number and directory creation time to its canonical location.
+ if(!(info.nFileIndexHigh||info.nFileIndexLow)){
+    std::error_code error;const auto path=fs::canonical(root,error);
+    if(error)return {};
+    return std::to_string(info.dwVolumeSerialNumber)+"-"+std::to_string(info.ftCreationTime.dwHighDateTime)+"-"+
+           std::to_string(info.ftCreationTime.dwLowDateTime)+"-"+sha256_text(utf8(path));
+ }
+ return std::to_string(info.dwVolumeSerialNumber)+"-"+std::to_string(info.nFileIndexHigh)+"-"+
+        std::to_string(info.nFileIndexLow)+"-"+std::to_string(info.ftCreationTime.dwHighDateTime)+"-"+
+        std::to_string(info.ftCreationTime.dwLowDateTime);
+#else
+ struct stat info{};
+ if(lstat(root.c_str(),&info)!=0||!S_ISDIR(info.st_mode)||!info.st_ino)return {};
+ return std::to_string(info.st_dev)+"-"+std::to_string(info.st_ino);
+#endif
+}
+static Inventory read_hashed_inventory(const fs::path& root,const Progress& progress,const std::atomic_bool* cancel,
+                      const ScanProgressCallback& scan_progress,bool persist_index,const Inventory* previous,
+                      const std::set<fs::path>& touched){
  // Never scan the cache itself or one of its descendants: that would index
  // mutable application data. A volume root is permitted because scan() skips
  // the cache branch during directory traversal.
  if(inside_or_same(index_dir(),root))
     throw std::runtime_error("Hash cache cannot itself be selected for scanning");
+ const auto identity=old_disk_directory_id(root);
+ if(previous&&(!previous->root_identity.empty()&&previous->root_identity!=identity))
+    throw std::runtime_error("扫描位置对应的设备或文件夹已改变，请重新选择范围并完整盘点。");
+ if(identity.empty()||(previous&&previous->root_identity.empty()))previous=nullptr;
  ScanReporter reporter(root,scan_progress,progress);
  reporter.emit(true);check_cancel(cancel);
  auto inv=scan(root,progress,cancel,[&](const ScanProgress& s){reporter.enumerate(s);});
@@ -352,23 +389,57 @@ Inventory scan_hashed(const fs::path& root,const Progress& progress,const std::a
  reporter.emit(true);check_cancel(cancel);
  FileDigest digest;
  std::vector<char> buffer(1024U*1024U);
+ // scan() orders files by relative path. Advance through the two inventories once.
+ size_t cursor=0;
+ auto reusable=[&](const File& f)->const std::string* {
+    if(!previous)return nullptr;
+    while(cursor<previous->files.size()&&previous->files[cursor].rel<f.rel)++cursor;
+    if(cursor==previous->files.size())return nullptr;
+    const auto& old=previous->files[cursor];
+    if(old.rel!=f.rel||old.bytes!=f.bytes||old.mtime!=f.mtime||old.sha256.size()!=64)return nullptr;
+    for(auto path=f.rel;!path.empty();path=path.parent_path())
+       if(touched.count(path))return nullptr;
+    return &old.sha256;
+ };
  U64 accounted=0;
  for(auto& f:inv.files){
    check_cancel(cancel);
    reporter.state.current_file=f.rel;
-   try{f.sha256=hash_file(inv.root/f.rel,f.bytes,f.mtime,digest,buffer,reporter,cancel);}
+   try{
+      if(const auto* cached=reusable(f))f.sha256=*cached;
+      else f.sha256=hash_file(inv.root/f.rel,f.bytes,f.mtime,digest,buffer,reporter,cancel);
+   }
    catch(const std::exception& e){check_cancel(cancel);inv.errors.push_back(utf8(f.rel)+": "+e.what());}
    accounted+=f.bytes;reporter.state.bytes_processed=accounted;
    ++reporter.state.files_completed;reporter.state.errors=inv.errors.size();
    reporter.emit();
  }
  reporter.state.current_file.clear();reporter.emit(true);check_cancel(cancel);
+ if(!identity.empty()&&old_disk_directory_id(root)!=identity)
+    throw std::runtime_error("扫描时设备或目录发生变化，请重新盘点。");
+ inv.root_identity=identity;
  if(persist_index){
     reporter.state.phase=ScanPhase::SavingIndex;reporter.emit(true);
     save_index(inv,progress,reporter,cancel);check_cancel(cancel);
  }
  reporter.state.phase=ScanPhase::Complete;reporter.emit(true);
  return inv;
+}
+Inventory scan_hashed(const fs::path& root,const Progress& progress,const std::atomic_bool* cancel,
+                      const ScanProgressCallback& scan_progress,bool persist_index){
+ return read_hashed_inventory(root,progress,cancel,scan_progress,persist_index,nullptr,{});
+}
+Inventory refresh_old_disk(const Inventory& prior,const std::vector<fs::path>& changed_paths,
+                           const Progress& progress,const std::atomic_bool* cancel,const ScanProgressCallback& structured){
+ if(prior.root.empty())throw std::runtime_error("请先盘点要整理的目录。");
+ std::set<fs::path> touched;
+ for(const auto& relative:changed_paths){
+    check_cancel(cancel);
+    if(relative.empty()||relative==fs::path(".")||!is_inside(relative))
+       throw std::runtime_error("无法确定本次改动的范围，请完整盘点。");
+    touched.insert(relative.lexically_normal());
+ }
+ return read_hashed_inventory(prior.root,progress,cancel,structured,false,&prior,touched);
 }
 FullScan scan_roots_hashed(const std::vector<fs::path>& roots,
                            const Progress& progress,const std::atomic_bool* cancel,
